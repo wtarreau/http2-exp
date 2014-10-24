@@ -363,6 +363,9 @@ static char huff_tmp[1024]; /* at most 32-bit per input char */
 /* debug mode : 0 = none, 1 = encoding, 2 = code */
 static int debug_mode;
 
+/* proposal number : 0 = draft09 (default), 1="option3" */
+static int proposal;
+
 /* statistics */
 static int input_bytes;
 static int input_str_bytes;
@@ -626,7 +629,9 @@ int send_static(int idx)
 {
 	int sent;
 
-	sent = send_var_int(0x80, idx, 7);
+	switch(proposal) {
+	case 0: sent = send_var_int(0x80, idx, 7); break;
+	}
 	output_static++;
 	output_static_bytes += sent;
 	debug_printf(1, "  => %s(%d) = %d\n", __FUNCTION__, idx, sent);
@@ -637,7 +642,9 @@ int send_dynamic(int idx)
 {
 	int sent;
 
-	sent = send_var_int(0x80, idx + STATIC_SIZE, 7);
+	switch(proposal) {
+	case 0: sent = send_var_int(0x80, idx + STATIC_SIZE, 7); break;
+	}
 	output_dynamic++;
 	output_dynamic_bytes += sent;
 	debug_printf(1, "  => %s(%d) = %d\n", __FUNCTION__, idx, sent);
@@ -648,7 +655,9 @@ int send_static_literal(int idx, const char *v)
 {
 	int sent = 0;
 
-	sent += send_var_int(0x40, idx, 6);
+	switch(proposal) {
+	case 0: sent += send_var_int(0x40, idx, 6); break;
+	}
 	sent += encode_string(v);
 	output_static_lit++;
 	output_static_lit_bytes += sent;
@@ -660,7 +669,9 @@ int send_dynamic_literal(int idx, const char *v)
 {
 	int sent = 0;
 
-	sent += send_var_int(0x40, idx + STATIC_SIZE, 6);
+	switch(proposal) {
+	case 0: sent += send_var_int(0x40, idx + STATIC_SIZE, 6); break;
+	}
 	sent += encode_string(v);
 	output_dynamic_lit++;
 	output_dynamic_lit_bytes += sent;
@@ -672,7 +683,9 @@ int send_literal(const char *n, const char *v)
 {
 	int sent = 0;
 
-	sent += send_byte(0x40);
+	switch(proposal) {
+	case 0: sent += send_byte(0x40); break;
+	}
 	sent += encode_string(n);
 	sent += encode_string(v);
 	output_literal++;
@@ -684,7 +697,9 @@ int send_static_literal_wo(int idx, const char *v)
 {
 	int sent = 0;
 
-	sent += send_var_int(0x00, idx, 4);
+	switch(proposal) {
+	case 0: sent += send_var_int(0x00, idx, 4); break;
+	}
 	sent += encode_string(v);
 	output_static_lit_wo++;
 	output_static_lit_wo_bytes += sent;
@@ -696,7 +711,9 @@ int send_dynamic_literal_wo(int idx, const char *v)
 {
 	int sent = 0;
 
-	sent += send_var_int(0x00, idx + STATIC_SIZE, 4);
+	switch(proposal) {
+	case 0: sent += send_var_int(0x00, idx + STATIC_SIZE, 4); break;
+	}
 	sent += encode_string(v);
 	output_dynamic_lit_wo++;
 	output_dynamic_lit_wo_bytes += sent;
@@ -708,7 +725,9 @@ int send_literal_wo(const char *n, const char *v)
 {
 	int sent = 0;
 
-	sent += send_byte(0x00);
+	switch(proposal) {
+	case 0: sent += send_byte(0x00); break;
+	}
 	sent += encode_string(n);
 	sent += encode_string(v);
 	output_literal_wo++;
@@ -729,6 +748,8 @@ int main(int argc, char **argv)
 			debug_mode++;
 		else if (strcmp(argv[1], "-dd") == 0)
 			debug_mode += 2;
+		else if (strcmp(argv[1], "-1") == 0)
+			proposal = 1;
 		argv++;
 		argc--;
 	}

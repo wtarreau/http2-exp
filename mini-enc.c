@@ -631,6 +631,7 @@ int send_static(int idx)
 
 	switch(proposal) {
 	case 0: sent = send_var_int(0x80, idx, 7); break;
+	case 1: sent = send_var_int(0x80, idx, 6); break;
 	}
 	output_static++;
 	output_static_bytes += sent;
@@ -644,6 +645,7 @@ int send_dynamic(int idx)
 
 	switch(proposal) {
 	case 0: sent = send_var_int(0x80, idx + STATIC_SIZE, 7); break;
+	case 1: sent = send_var_int(0xC0, idx, 6); break;
 	}
 	output_dynamic++;
 	output_dynamic_bytes += sent;
@@ -657,6 +659,7 @@ int send_static_literal(int idx, const char *v)
 
 	switch(proposal) {
 	case 0: sent += send_var_int(0x40, idx, 6); break;
+	case 1: sent += send_var_int(0x40, idx, 5); break;
 	}
 	sent += encode_string(v);
 	output_static_lit++;
@@ -671,6 +674,7 @@ int send_dynamic_literal(int idx, const char *v)
 
 	switch(proposal) {
 	case 0: sent += send_var_int(0x40, idx + STATIC_SIZE, 6); break;
+	case 1: sent += send_var_int(0x60, idx, 5); break;
 	}
 	sent += encode_string(v);
 	output_dynamic_lit++;
@@ -685,6 +689,7 @@ int send_literal(const char *n, const char *v)
 
 	switch(proposal) {
 	case 0: sent += send_byte(0x40); break;
+	case 1: sent += send_byte(0x40); break;
 	}
 	sent += encode_string(n);
 	sent += encode_string(v);
@@ -699,6 +704,7 @@ int send_static_literal_wo(int idx, const char *v)
 
 	switch(proposal) {
 	case 0: sent += send_var_int(0x00, idx, 4); break;
+	case 1: sent += send_var_int(0x00, idx, 3); break;
 	}
 	sent += encode_string(v);
 	output_static_lit_wo++;
@@ -713,6 +719,7 @@ int send_dynamic_literal_wo(int idx, const char *v)
 
 	switch(proposal) {
 	case 0: sent += send_var_int(0x00, idx + STATIC_SIZE, 4); break;
+	case 1: sent += send_var_int(0x08, idx, 3); break;
 	}
 	sent += encode_string(v);
 	output_dynamic_lit_wo++;
@@ -727,6 +734,7 @@ int send_literal_wo(const char *n, const char *v)
 
 	switch(proposal) {
 	case 0: sent += send_byte(0x00); break;
+	case 1: sent += send_byte(0x00); break;
 	}
 	sent += encode_string(n);
 	sent += encode_string(v);

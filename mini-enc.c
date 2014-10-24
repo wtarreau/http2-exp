@@ -363,7 +363,7 @@ static char huff_tmp[1024]; /* at most 32-bit per input char */
 /* debug mode : 0 = none, 1 = encoding, 2 = code */
 static int debug_mode;
 
-/* proposal number : 0 = draft09 (default), 1="option3", 2="Tue, 21 Oct 2014 11:40:32 +0200" */
+/* proposal number : 0 = draft09 (default), 1="option3", 2="Tue, 21 Oct 2014 11:40:32 +0200", 3=Greg's */
 static int proposal;
 
 /* statistics */
@@ -633,6 +633,7 @@ int send_static(int idx)
 	case 0: sent = send_var_int(0x80, idx, 7); break;
 	case 1: sent = send_var_int(0x80, idx, 6); break;
 	case 2: sent = send_var_int(0x30, idx, 4); break;
+	case 3: sent = send_var_int(0x80, idx, 6); break;
 	}
 	output_static++;
 	output_static_bytes += sent;
@@ -648,6 +649,7 @@ int send_dynamic(int idx)
 	case 0: sent = send_var_int(0x80, idx + STATIC_SIZE, 7); break;
 	case 1: sent = send_var_int(0xC0, idx, 6); break;
 	case 2: sent = send_var_int(0x40, idx, 6); break;
+	case 3: sent = send_var_int(0xC0, idx, 6); break;
 	}
 	output_dynamic++;
 	output_dynamic_bytes += sent;
@@ -663,6 +665,7 @@ int send_static_literal(int idx, const char *v)
 	case 0: sent += send_var_int(0x40, idx, 6); break;
 	case 1: sent += send_var_int(0x40, idx, 5); break;
 	case 2: sent += send_var_int(0x80, idx, 6); break;
+	case 3: sent += send_var_int(0x40, idx, 4); break;
 	}
 	sent += encode_string(v);
 	output_static_lit++;
@@ -679,6 +682,7 @@ int send_dynamic_literal(int idx, const char *v)
 	case 0: sent += send_var_int(0x40, idx + STATIC_SIZE, 6); break;
 	case 1: sent += send_var_int(0x60, idx, 5); break;
 	case 2: sent += send_var_int(0xC0, idx, 6); break;
+	case 3: sent += send_var_int(0x50, idx, 4); break;
 	}
 	sent += encode_string(v);
 	output_dynamic_lit++;
@@ -695,6 +699,7 @@ int send_literal(const char *n, const char *v)
 	case 0: sent += send_byte(0x40); break;
 	case 1: sent += send_byte(0x40); break;
 	case 2: sent += send_byte(0x80); break;
+	case 3: sent += send_byte(0x50); break;
 	}
 	sent += encode_string(n);
 	sent += encode_string(v);
@@ -711,6 +716,7 @@ int send_static_literal_wo(int idx, const char *v)
 	case 0: sent += send_var_int(0x00, idx, 4); break;
 	case 1: sent += send_var_int(0x00, idx, 3); break;
 	case 2: sent += send_var_int(0x00, idx, 3); break;
+	case 3: sent += send_var_int(0x20, idx, 4); break;
 	}
 	sent += encode_string(v);
 	output_static_lit_wo++;
@@ -727,6 +733,7 @@ int send_dynamic_literal_wo(int idx, const char *v)
 	case 0: sent += send_var_int(0x00, idx + STATIC_SIZE, 4); break;
 	case 1: sent += send_var_int(0x08, idx, 3); break;
 	case 2: sent += send_var_int(0x08, idx, 3); break;
+	case 3: sent += send_var_int(0x30, idx, 4); break;
 	}
 	sent += encode_string(v);
 	output_dynamic_lit_wo++;
@@ -743,6 +750,7 @@ int send_literal_wo(const char *n, const char *v)
 	case 0: sent += send_byte(0x00); break;
 	case 1: sent += send_byte(0x00); break;
 	case 2: sent += send_byte(0x00); break;
+	case 3: sent += send_byte(0x30); break;
 	}
 	sent += encode_string(n);
 	sent += encode_string(v);
@@ -768,6 +776,8 @@ int main(int argc, char **argv)
 			proposal = 1;
 		else if (strcmp(argv[1], "-2") == 0)
 			proposal = 2;
+		else if (strcmp(argv[1], "-3") == 0)
+			proposal = 3;
 		argv++;
 		argc--;
 	}

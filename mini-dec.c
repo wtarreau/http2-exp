@@ -1822,37 +1822,9 @@ int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 			/* read up to 4 bytes into next. FIXME: this should
 			 * later be optimized to perform a single 32-bit big
 			 * endian read when unaligned accesses are possible.
-			 * The missing bits are inserted as EOS.
 			 */
 			next = 0;
-			//next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0xFF);
-			//next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0xFF);
-			//next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0xFF);
-			//next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0xFF);
 
-			//next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0x00);
-			//next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0x00);
-			//next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0x00);
-			//next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0x00);
-
-			/* smaller */
-			//next = (next << 8) + ((huff < huff_end) ? *huff++ : 0x00);
-			//next = (next << 8) + ((huff < huff_end) ? *huff++ : 0x00);
-			//next = (next << 8) + ((huff < huff_end) ? *huff++ : 0x00);
-			//next = (next << 8) + ((huff < huff_end) ? *huff++ : 0x00);
-
-			/* even smaller */
-			//next = (next << 8) + ((huff + 0 < huff_end) ? huff[0] : 0x00);
-			//next = (next << 8) + ((huff + 1 < huff_end) ? huff[1] : 0x00);
-			//next = (next << 8) + ((huff + 2 < huff_end) ? huff[2] : 0x00);
-			//next = (next << 8) + ((huff + 3 < huff_end) ? huff[3] : 0x00);
-			//
-			//if (huff + 4 <= huff_end)
-			//	huff += 4;
-			//else
-			//	huff = huff_end;
-
-			/* much faster */
 			if (huff + 4 <= huff_end) {
 				next = (huff[0] << 24) + (huff[1] << 16) + (huff[2] <<  8) + huff[3];
 				huff += 4;
@@ -1871,93 +1843,74 @@ int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 
 			shift -= 32;
 		}
+
 		/* curr:next contain 64 bit of huffman code */
 		code = curr;
 		if (shift)
 			code = (code << shift) + (next >> (32 - shift));
-
-		fprintf(stderr, "out=%d bleft=%d code=%08x shift=%d curr=%08x next=%08x\n", out-out_start, bleft, code, shift, curr, next);
 
 		/* now we necessarily have 32 bits available */
 		if ((code >> 24) < 0xfe) {
 			/* single byte */
 			l = rht_bit31_24[code >> 24].l;
 			sym = rht_bit31_24[code >> 24].c;
-			if (!l || bleft - l < 0)
-				break;
-			bleft -= l;
-			shift += l;
-			*out++ = sym;
-			continue;
 		}
-
-		/* two bytes, 0xfe + 2 bits or 0xff + 2..7 bits */
-		if ((code >> 17) & 0xff < 0xff) {
+		else if (((code >> 17) & 0xff) < 0xff) {
+			/* two bytes, 0xfe + 2 bits or 0xff + 2..7 bits */
 			l = rht_bit24_17[(code >> 17) & 0xff].l;
 			sym = rht_bit24_17[(code >> 17) & 0xff].c;
-			if (!l || bleft - l < 0)
-				break;
-			bleft -= l;
-			shift += l;
-			*out++ = sym;
-			continue;
 		}
-
-		/* 0xff + 0xfe + 3..5 bits or
-		 * 0xff + 0xff + 5..8 bits for values till 0xf5
-		 */
-		if ((code >> 16) & 0xff < 0xff) { /* 3..5 bits */
+		else if (((code >> 16) & 0xff) < 0xff) { /* 3..5 bits */
+			/* 0xff + 0xfe + 3..5 bits or
+			 * 0xff + 0xff + 5..8 bits for values till 0xf5
+			 */
 			l = rht_bit15_11_fe[(code >> 11) & 0x1f].l;
 			sym = rht_bit15_11_fe[(code >> 11) & 0x1f].c;
-			if (!l || bleft - l < 0)
-				break;
-			bleft -= l;
-			shift += l;
-			*out++ = sym;
-			continue;
 		}
-
-		/* that's 0xff + 0xff */
-		if ((code >> 8) & 0xff < 0xf6) { /* 5..8 bits */
+		else if (((code >> 8) & 0xff) < 0xf6) { /* 5..8 bits */
+			/* that's 0xff + 0xff */
 			l = rht_bit15_8[(code >> 8) & 0xff].l;
 			sym = rht_bit15_8[(code >> 8) & 0xff].c;
-			if (!l || bleft - l < 0)
+		}
+		else {
+			/* 0xff 0xff 0xf6..0xff */
+			l = rht_bit11_4[(code >> 4) & 0xff].l;
+			if (l < 30)
+				sym = rht_bit11_4[(code >> 4) & 0xff].c;
+			else if (code & 0xff == 0xf0)
+				sym = 10;
+			else if (code & 0xff == 0xf4)
+				sym = 13;
+			else if (code & 0xff == 0xf8)
+				sym = 22;
+			else { // 0xfc : EOS 
 				break;
-			bleft -= l;
-			shift += l;
-			*out++ = sym;
-			continue;
+			}
 		}
 
-		/* 0xff 0xff 0xf6..ff */
-		l = rht_bit11_4[(code >> 4) & 0xff].l;
-		if (l < 30)
-			sym = rht_bit11_4[(code >> 4) & 0xff].c;
-		else if (code & 0xff == 0xf0)
-			sym = 10;
-		else if (code & 0xff == 0xf4)
-			sym = 13;
-		else if (code & 0xff == 0xf8)
-			sym = 22;
-		else { // 0xfc : EOS 
-			break;
-		}
+		//fprintf(stderr, "out=%02d bleft=%03d code=%08x shift=%02d curr=%08x next=%08x sym=%02x l=%d\n", out-out_start, bleft, code, shift, curr, next, sym, l);
+
+
 		if (!l || bleft - l < 0)
 			break;
+
 		bleft -= l;
 		shift += l;
 		*out++ = sym;
 	}
+
 	if (bleft > 0) {
 		/* some bits were not consumed after the last code, they must
 		 * match EOS (ie: all ones).
 		 */
-		if ((curr & ((1 << bleft) - 1)) != ((1 << bleft) - 1)) {
+		if ((code & -(1 << (32 - bleft))) != -(1 << (32 - bleft))) {
 			fprintf(stderr, "bleft=%d curr=0x%08x\n", bleft, curr);
 			return -1;
 		}
 	}
-	*out = 0;
+
+	if (out < out_end)
+		*out = 0; // end of string whenever possible
 	return out - out_start;
 }
 

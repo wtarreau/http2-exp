@@ -2072,18 +2072,18 @@ int decode_frame(const uint8_t *raw, int len)
 			/* literal header field with incremental indexing -- indexed name */
 			idx = get_var_int(&raw, &len, 6);
 			if (len < 0) // truncated
-				return -1;
+				return -2;
 			name = idx_to_name(idx);
 			nlen = strlen(name);
 
 			if (!len) // truncated
-				return -1;
+				return -3;
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
 			if (len < 0) // truncated
-				return -1;
+				return -4;
 			if (len < vlen) // truncated
-				return -1;
+				return -5;
 			value = (char *)raw;
 			raw += vlen;
 			len -= vlen;
@@ -2103,13 +2103,13 @@ int decode_frame(const uint8_t *raw, int len)
 
 			/* name */
 			if (!len) // truncated
-				return -1;
+				return -6;
 			huff = *raw & 0x80;
 			nlen = get_var_int(&raw, &len, 7);
 			if (len < 0) // truncated
-				return -1;
+				return -7;
 			if (len < nlen) // truncated
-				return -1;
+				return -8;
 			name = (char *)raw;
 			raw += nlen;
 			len -= nlen;
@@ -2124,13 +2124,13 @@ int decode_frame(const uint8_t *raw, int len)
 
 			/* value */
 			if (!len) // truncated
-				return -1;
+				return -9;
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
 			if (len < 0) // truncated
-				return -1;
+				return -10;
 			if (len < vlen) // truncated
-				return -1;
+				return -11;
 			value = (char *)raw;
 			raw += vlen;
 			len -= vlen;
@@ -2149,18 +2149,18 @@ int decode_frame(const uint8_t *raw, int len)
 			/* literal header field without indexing -- indexed name */
 			idx = get_var_int(&raw, &len, 4);
 			if (len < 0) // truncated
-				return -1;
+				return -12;
 			name = idx_to_name(idx);
 			nlen = strlen(name);
 
 			if (!len) // truncated
-				return -1;
+				return -13;
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
 			if (len < 0) // truncated
-				return -1;
+				return -14;
 			if (len < vlen) // truncated
-				return -1;
+				return -15;
 			value = (char *)raw;
 			raw += vlen;
 			len -= vlen;
@@ -2181,13 +2181,13 @@ int decode_frame(const uint8_t *raw, int len)
 
 			/* name */
 			if (!len) // truncated
-				return -1;
+				return -16;
 			huff = *raw & 0x80;
 			nlen = get_var_int(&raw, &len, 7);
 			if (len < 0) // truncated
-				return -1;
+				return -17;
 			if (len < nlen) // truncated
-				return -1;
+				return -18;
 			name = (char *)raw;
 			raw += nlen;
 			len -= nlen;
@@ -2202,13 +2202,13 @@ int decode_frame(const uint8_t *raw, int len)
 
 			/* value */
 			if (!len) // truncated
-				return -1;
+				return -19;
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
 			if (len < 0) // truncated
-				return -1;
+				return -20;
 			if (len < vlen) // truncated
-				return -1;
+				return -21;
 			value = (char *)raw;
 			raw += vlen;
 			len -= vlen;
@@ -2227,18 +2227,18 @@ int decode_frame(const uint8_t *raw, int len)
 			/* literal header field never indexed -- indexed name */
 			idx = get_var_int(&raw, &len, 4);
 			if (len < 0) // truncated
-				return -1;
+				return -22;
 			name = idx_to_name(idx);
 			nlen = strlen(name);
 
 			if (!len) // truncated
-				return -1;
+				return -23;
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
 			if (len < 0) // truncated
-				return -1;
+				return -24;
 			if (len < vlen) // truncated
-				return -1;
+				return -25;
 			value = (char *)raw;
 			raw += vlen;
 			len -= vlen;
@@ -2250,13 +2250,13 @@ int decode_frame(const uint8_t *raw, int len)
 
 			/* name */
 			if (!len) // truncated
-				return -1;
+				return -26;
 			huff = *raw & 0x80;
 			nlen = get_var_int(&raw, &len, 7);
 			if (len < 0) // truncated
-				return -1;
+				return -27;
 			if (len < nlen) // truncated
-				return -1;
+				return -28;
 			name = (char *)raw;
 			raw += nlen;
 			len -= nlen;
@@ -2271,13 +2271,13 @@ int decode_frame(const uint8_t *raw, int len)
 
 			/* value */
 			if (!len) // truncated
-				return -1;
+				return -29;
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
 			if (len < 0) // truncated
-				return -1;
+				return -30;
 			if (len < vlen) // truncated
-				return -1;
+				return -31;
 			value = (char *)raw;
 			raw += vlen;
 			len -= vlen;
@@ -2296,11 +2296,11 @@ int decode_frame(const uint8_t *raw, int len)
 			/* max dyn table size change */
 			idx = get_var_int(&raw, &len, 5);
 			if (len < 0) // truncated
-				return -1;
+				return -32;
 		}
 		else {
 			fprintf(stderr, "unhandled code 0x%02x (raw=%p, len=%d)\n", *raw, raw, len);
-			return -1;
+			return -33;
 		}
 	}
 	return 0;
@@ -2308,13 +2308,7 @@ int decode_frame(const uint8_t *raw, int len)
 
 int main(int argc, char **argv)
 {
-	const char *n, *v;
-	int sn, sv; /* static name, value indexes */
-	int dn, dv; /* dynamic name, value indexes */
-	int dont_index;
-	char *orig = NULL;
-	uint32_t c;
-	int i, j;
+	int ret;
 
 	while (argc > 1) {
 		if (strcmp(argv[1], "-d") == 0)
@@ -2335,8 +2329,9 @@ int main(int argc, char **argv)
 
 	while ((argc > 1 || read_input_line() >= 0) && decode_input_line() >= 0) {
 		debug_printf(1, "\nin_hex=<%s> in_len=<%d>\n", in_hex, in_len);
-		if (decode_frame(in, in_len) < 0) {
-			printf("decoding error, stopping\n");
+		ret = decode_frame(in, in_len);
+		if (ret < 0) {
+			printf("decoding error, stopping (%d)\n", ret);
 			exit(1);
 		}
 		if (argc) // process only cmd line if provided

@@ -1801,19 +1801,18 @@ int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 	uint32_t shift;
 	uint32_t code; /* The 30-bit code being looked up, MSB-aligned */
 
-	//int code_len;
 	int pos; /* position in the huff stream */
-	//int next_bits;
 
+	int bleft; /* bits left */
 	int ret;
 	int len;
 	int l;
 
 	pos = 0;
 	code = 0;
-	//code_len = 0;
 	shift = 64; // start with an empty buffer
-	while (1) {
+	bleft = hlen << 3;
+	while (bleft > 0) {
 		while (shift >= 32) {
 			curr = next;
 
@@ -1823,10 +1822,10 @@ int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 			 * The missing bits are inserted as EOS.
 			 */
 			next = 0;
-			next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0xFF);
-			next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0xFF);
-			next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0xFF);
-			next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0xFF);
+			next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0x00);
+			next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0x00);
+			next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0x00);
+			next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0x00);
 
 			shift -= 32;
 		}
@@ -1835,13 +1834,17 @@ int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 		if (shift)
 			code = (code << shift) + (next >> (32 - shift));
 
+		fprintf(stderr, "out=%d bleft=%d code=%08x shift=%d curr=%08x next=%08x\n", out-out_start, bleft, code, shift, curr, next);
+
 		/* now we necessarily have 32 bits available */
 		if ((code >> 24) < 0xfe) {
 			/* single byte */
 			l = rht_bit31_24[code >> 24].l;
 			*out++ = rht_bit31_24[code >> 24].c;
-			//code_len -= l;
 			shift += l;
+			if (!l || bleft - l < 0)
+				break;
+			bleft -= l;
 			continue;
 		}
 
@@ -1849,8 +1852,10 @@ int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 		if ((code >> 17) & 0xff < 0xff) {
 			l = rht_bit24_17[(code >> 17) & 0xff].l;
 			*out++ = rht_bit24_17[(code >> 17) & 0xff].c;
-			//code_len -= l;
 			shift += l;
+			if (!l || bleft - l < 0)
+				break;
+			bleft -= l;
 			continue;
 		}
 
@@ -1860,8 +1865,10 @@ int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 		if ((code >> 16) & 0xff < 0xff) { /* 3..5 bits */
 			l = rht_bit15_11_fe[(code >> 11) & 0x1f].l;
 			*out++ = rht_bit15_11_fe[(code >> 11) & 0x1f].c;
-			//code_len -= l;
 			shift += l;
+			if (!l || bleft - l < 0)
+				break;
+			bleft -= l;
 			continue;
 		}
 
@@ -1869,15 +1876,19 @@ int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 		if ((code >> 8) & 0xff < 0xf6) { /* 5..8 bits */
 			l = rht_bit15_8[(code >> 8) & 0xff].l;
 			*out++ = rht_bit15_8[(code >> 8) & 0xff].c;
-			//code_len -= l;
 			shift += l;
+			if (!l || bleft - l < 0)
+				break;
+			bleft -= l;
 			continue;
 		}
 
 		/* 0xff 0xff 0xf6..ff */
 		l = rht_bit11_4[(code >> 4) & 0xff].l;
-		//code_len -= l;
 		shift += l;
+		if (!l || bleft - l < 0)
+			break;
+		bleft -= l;
 		if (l < 30)
 			*out++ = rht_bit11_4[(code >> 4) & 0xff].c;
 		else if (code & 0xff == 0xf0)
@@ -1887,16 +1898,16 @@ int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 		else if (code & 0xff == 0xf8)
 			*out++ = 22;
 		else { // 0xfc : EOS 
-			/* FIXME: how to detect whether it's genuine or inserted ? */
-			//if (next_bits) {
-			//	if ((*huff ^ 0xff) >> (8 - next_bits)) {
-			//		fprintf(stderr, "FATAL: EOS. next_bits = %d, *huff=%02x\n", next_bits, *huff);
-			//		return -1;
-			//	}
-			//	huff++;
-			//	next_bits = 0;
-			//}
 			break;
+		}
+	}
+	if (bleft > 0) {
+		/* some bits were not consumed after the last code, they must
+		 * match EOS (ie: all ones).
+		 */
+		if ((curr & ((1 << bleft) - 1)) != ((1 << bleft) - 1)) {
+			fprintf(stderr, "bleft=%d curr=0x%08x\n", bleft, curr);
+			return -1;
 		}
 	}
 	*out = 0;

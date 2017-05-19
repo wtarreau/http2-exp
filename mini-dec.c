@@ -2058,7 +2058,7 @@ int decode_frame(const uint8_t *raw, int len)
 
 	while (len) {
 		c = *raw;
-		if (*raw & 0x80) {
+		if (*raw >= 0x81) {
 			/* indexed header field */
 			idx = get_var_int(&raw, &len, 7);
 			if (len < 0) // truncated
@@ -2066,7 +2066,7 @@ int decode_frame(const uint8_t *raw, int len)
 			name = value = NULL;
 			printf("%02x: p14: indexed header field\n  %s: %s\n", c, idx_to_name(idx), idx_to_value(idx)); 
 		}
-		else if (*raw >= 0x41 && *raw < 0x7f) {
+		else if (*raw >= 0x41 && *raw <= 0x7f) {
 			/* literal header field with incremental indexing -- indexed name */
 			idx = get_var_int(&raw, &len, 6);
 			if (len < 0) // truncated
@@ -2143,7 +2143,7 @@ int decode_frame(const uint8_t *raw, int len)
 
 			printf("%02x: p16: literal with indexing\n  %s: %s\n", c, name, value); 
 		}
-		else if (*raw >= 0x01 && *raw < 0x0f) {
+		else if (*raw >= 0x01 && *raw <= 0x0f) {
 			/* literal header field without indexing -- indexed name */
 			idx = get_var_int(&raw, &len, 4);
 			if (len < 0) // truncated
@@ -2221,7 +2221,7 @@ int decode_frame(const uint8_t *raw, int len)
 
 			printf("%02x: p17: literal without indexing\n  %s: %s\n", c, name, value); 
 		}
-		else if (*raw >= 0x11 && *raw < 0x1f) {
+		else if (*raw >= 0x11 && *raw <= 0x1f) {
 			/* literal header field never indexed -- indexed name */
 			idx = get_var_int(&raw, &len, 4);
 			if (len < 0) // truncated
@@ -2290,7 +2290,7 @@ int decode_frame(const uint8_t *raw, int len)
 
 			printf("%02x: p18: literal never indexed\n  %s: %s\n", c, name, value); 
 		}
-		else if (*raw >= 0x20 && *raw < 0x3f) {
+		else if (*raw >= 0x20 && *raw <= 0x3f) {
 			/* max dyn table size change */
 			idx = get_var_int(&raw, &len, 5);
 			if (len < 0) // truncated

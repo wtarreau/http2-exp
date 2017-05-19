@@ -1,5 +1,5 @@
 CFLAGS = -O2
-OBJS = mini-enc
+OBJS = mini-enc gen-rht
 
 all: $(OBJS)
 

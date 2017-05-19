@@ -1781,60 +1781,67 @@ int huff_enc(const char *s)
 	return bits / 8;
 }
 
-/* pass a huffman string, it will decode it and return the new output size or -1 in case of error */
+/* pass a huffman string, it will decode it and return the new output size or
+ * -1 in case of error.
+ *
+ * The principle of the decoder is to lookup full bytes in reverse-huffman
+ * tables. Since we may need up to 30 bits and the word positions are not
+ * always multiples of 8, we build the code word by shifting the "current"
+ * 32-bit word and the "next" one of the appropriate amount of bits. Once
+ * the shift goes beyond 32, words are swapped and the "next" one is refilled
+ * with new bytes. Shift operations are cheap when done a single time like this.
+ * On 64-bit platforms it is possible to further improve this by storing both
+ * of them in a single word.
+ * 
+ */
 int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 {
 	char *out_start = out;
-	uint32_t code;
-	int code_len;
-	int next_bits;
+	uint32_t curr, next;
+	uint32_t shift;
+	uint32_t code; /* The 30-bit code being looked up, MSB-aligned */
+
+	//int code_len;
+	int pos; /* position in the huff stream */
+	//int next_bits;
 
 	int ret;
 	int len;
 	int l;
 
+	pos = 0;
 	code = 0;
-	code_len = 0;
-	next_bits = 0;
-	while (hlen-- > 0) {
-		if (code_len < 32) {
-			/* we may need more bits */
-			if (next_bits) {
-				/* we've already read a partial byte, let's continue */
-				l = 8 - next_bits; // number of extra bits to take
-				if (code_len + l > 32)
-					l = 32 - code_len;
+	//code_len = 0;
+	shift = 64; // start with an empty buffer
+	while (1) {
+		while (shift >= 32) {
+			curr = next;
 
-				code = (code << l) + ((*huff & ((1 << (8 - next_bits)) - 1)) >> (8 - next_bits - l));
-				code_len += l;
-				next_bits += l;
-				if (next_bits >= 8) {
-					next_bits = 0;
-					huff++;
-				}
-			}
-			/* read full bytes */
-			while (code_len <= 24) {
-				code = (code << 8) + *huff++;
-				code_len += 8;
-			}
+			/* read up to 4 bytes into next. FIXME: this should
+			 * later be optimized to perform a single 32-bit big
+			 * endian read when unaligned accesses are possible.
+			 * The missing bits are inserted as EOS.
+			 */
+			next = 0;
+			next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0xFF);
+			next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0xFF);
+			next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0xFF);
+			next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0xFF);
 
-			/* we may still need more bits */
-			if (code_len < 32) { // we have 25..31 bits 
-				/* we've already read a partial byte, let's continue */
-				next_bits = 32 - code_len; // extra bits to add
-
-				code = (code << next_bits) + (*huff >> (8 - next_bits));
-				code_len += next_bits;
-			}
+			shift -= 32;
 		}
+		/* curr:next contain 64 bit of huffman code */
+		code = curr;
+		if (shift)
+			code = (code << shift) + (next >> (32 - shift));
 
 		/* now we necessarily have 32 bits available */
 		if ((code >> 24) < 0xfe) {
 			/* single byte */
 			l = rht_bit31_24[code >> 24].l;
 			*out++ = rht_bit31_24[code >> 24].c;
-			code_len -= l;
+			//code_len -= l;
+			shift += l;
 			continue;
 		}
 
@@ -1842,7 +1849,8 @@ int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 		if ((code >> 17) & 0xff < 0xff) {
 			l = rht_bit24_17[(code >> 17) & 0xff].l;
 			*out++ = rht_bit24_17[(code >> 17) & 0xff].c;
-			code_len -= l;
+			//code_len -= l;
+			shift += l;
 			continue;
 		}
 
@@ -1852,7 +1860,8 @@ int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 		if ((code >> 16) & 0xff < 0xff) { /* 3..5 bits */
 			l = rht_bit15_11_fe[(code >> 11) & 0x1f].l;
 			*out++ = rht_bit15_11_fe[(code >> 11) & 0x1f].c;
-			code_len -= l;
+			//code_len -= l;
+			shift += l;
 			continue;
 		}
 
@@ -1860,13 +1869,15 @@ int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 		if ((code >> 8) & 0xff < 0xf6) { /* 5..8 bits */
 			l = rht_bit15_8[(code >> 8) & 0xff].l;
 			*out++ = rht_bit15_8[(code >> 8) & 0xff].c;
-			code_len -= l;
+			//code_len -= l;
+			shift += l;
 			continue;
 		}
 
 		/* 0xff 0xff 0xf6..ff */
 		l = rht_bit11_4[(code >> 4) & 0xff].l;
-		code_len -= l;
+		//code_len -= l;
+		shift += l;
 		if (l < 30)
 			*out++ = rht_bit11_4[(code >> 4) & 0xff].c;
 		else if (code & 0xff == 0xf0)
@@ -1876,14 +1887,15 @@ int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 		else if (code & 0xff == 0xf8)
 			*out++ = 22;
 		else { // 0xfc : EOS 
-			if (next_bits) {
-				if ((*huff ^ 0xff) >> (8 - next_bits)) {
-					fprintf(stderr, "FATAL: EOS. next_bits = %d, *huff=%02x\n", next_bits, *huff);
-					return -1;
-				}
-				huff++;
-				next_bits = 0;
-			}
+			/* FIXME: how to detect whether it's genuine or inserted ? */
+			//if (next_bits) {
+			//	if ((*huff ^ 0xff) >> (8 - next_bits)) {
+			//		fprintf(stderr, "FATAL: EOS. next_bits = %d, *huff=%02x\n", next_bits, *huff);
+			//		return -1;
+			//	}
+			//	huff++;
+			//	next_bits = 0;
+			//}
 			break;
 		}
 	}

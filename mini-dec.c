@@ -1736,6 +1736,7 @@ uint32_t get_var_int(const uint8_t **raw_in, int *len_in, int b)
 	uint32_t ret = 0;
 	int len = *len_in;
 	const uint8_t *raw = *raw_in;
+	uint8_t shift = 0;
 
 	len--;
 	ret = *(raw++) & ((1 << b) - 1);
@@ -1747,7 +1748,8 @@ uint32_t get_var_int(const uint8_t **raw_in, int *len_in, int b)
 			goto too_short;
 		if (!(*raw & 128))
 			break;
-		ret = (ret << 7) + *(raw++) & 127;
+		ret += ((uint32_t)(*raw++) & 127) << shift;
+		shift += 7;
 		len--;
 	}
 
@@ -1755,7 +1757,7 @@ uint32_t get_var_int(const uint8_t **raw_in, int *len_in, int b)
 	if (!len)
 		goto too_short;
 	len--;
-	ret = (ret << 7) + *raw++;
+	ret += ((uint32_t)(*raw++) & 127) << shift;
 
  end:
 	*raw_in = raw;

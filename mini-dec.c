@@ -1514,6 +1514,8 @@ static inline const char *idx_to_name(int idx)
 {
 	if (idx <= STATIC_SIZE)
 		return sh[idx].n;
+
+return "[dynamic_name]";
 	return dh->h[idx - STATIC_SIZE].n;
 }
 
@@ -1522,6 +1524,7 @@ static inline const char *idx_to_value(int idx)
 {
 	if (idx <= STATIC_SIZE)
 		return sh[idx].v;
+return "[dynamic_value]";
 	return dh->h[idx - STATIC_SIZE].v;
 }
 

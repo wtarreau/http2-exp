@@ -1797,9 +1797,12 @@ int huff_enc(const char *s)
 int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 {
 	char *out_start = out;
+	char *out_end = out + olen;
+	const uint8_t *huff_end = huff + hlen;
 	uint32_t curr, next;
 	uint32_t shift;
 	uint32_t code; /* The 30-bit code being looked up, MSB-aligned */
+	uint8_t sym;
 
 	int pos; /* position in the huff stream */
 
@@ -1812,7 +1815,7 @@ int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 	code = 0;
 	shift = 64; // start with an empty buffer
 	bleft = hlen << 3;
-	while (bleft > 0) {
+	while (bleft > 0 && out != out_end) {
 		while (shift >= 32) {
 			curr = next;
 
@@ -1822,10 +1825,49 @@ int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 			 * The missing bits are inserted as EOS.
 			 */
 			next = 0;
-			next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0x00);
-			next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0x00);
-			next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0x00);
-			next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0x00);
+			//next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0xFF);
+			//next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0xFF);
+			//next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0xFF);
+			//next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0xFF);
+
+			//next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0x00);
+			//next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0x00);
+			//next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0x00);
+			//next = (next << 8) + ((pos < hlen) ? huff[pos++] : 0x00);
+
+			/* smaller */
+			//next = (next << 8) + ((huff < huff_end) ? *huff++ : 0x00);
+			//next = (next << 8) + ((huff < huff_end) ? *huff++ : 0x00);
+			//next = (next << 8) + ((huff < huff_end) ? *huff++ : 0x00);
+			//next = (next << 8) + ((huff < huff_end) ? *huff++ : 0x00);
+
+			/* even smaller */
+			//next = (next << 8) + ((huff + 0 < huff_end) ? huff[0] : 0x00);
+			//next = (next << 8) + ((huff + 1 < huff_end) ? huff[1] : 0x00);
+			//next = (next << 8) + ((huff + 2 < huff_end) ? huff[2] : 0x00);
+			//next = (next << 8) + ((huff + 3 < huff_end) ? huff[3] : 0x00);
+			//
+			//if (huff + 4 <= huff_end)
+			//	huff += 4;
+			//else
+			//	huff = huff_end;
+
+			/* much faster */
+			if (huff + 4 <= huff_end) {
+				next = (huff[0] << 24) + (huff[1] << 16) + (huff[2] <<  8) + huff[3];
+				huff += 4;
+			}
+			else {
+				/* note: we append 0 and not 0xff so that we can
+				 * distinguish shifted bits from a really inserted
+				 * EOS.
+				 */
+				next =  (((huff + 0 < huff_end) ? huff[0] : 0x00) << 24) +
+					(((huff + 1 < huff_end) ? huff[1] : 0x00) << 16) +
+					(((huff + 2 < huff_end) ? huff[2] : 0x00) <<  8) +
+					((huff + 3 < huff_end) ? huff[3] : 0x00);
+				huff = huff_end;
+			}
 
 			shift -= 32;
 		}
@@ -1840,22 +1882,24 @@ int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 		if ((code >> 24) < 0xfe) {
 			/* single byte */
 			l = rht_bit31_24[code >> 24].l;
-			*out++ = rht_bit31_24[code >> 24].c;
-			shift += l;
+			sym = rht_bit31_24[code >> 24].c;
 			if (!l || bleft - l < 0)
 				break;
 			bleft -= l;
+			shift += l;
+			*out++ = sym;
 			continue;
 		}
 
 		/* two bytes, 0xfe + 2 bits or 0xff + 2..7 bits */
 		if ((code >> 17) & 0xff < 0xff) {
 			l = rht_bit24_17[(code >> 17) & 0xff].l;
-			*out++ = rht_bit24_17[(code >> 17) & 0xff].c;
-			shift += l;
+			sym = rht_bit24_17[(code >> 17) & 0xff].c;
 			if (!l || bleft - l < 0)
 				break;
 			bleft -= l;
+			shift += l;
+			*out++ = sym;
 			continue;
 		}
 
@@ -1864,42 +1908,45 @@ int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 		 */
 		if ((code >> 16) & 0xff < 0xff) { /* 3..5 bits */
 			l = rht_bit15_11_fe[(code >> 11) & 0x1f].l;
-			*out++ = rht_bit15_11_fe[(code >> 11) & 0x1f].c;
-			shift += l;
+			sym = rht_bit15_11_fe[(code >> 11) & 0x1f].c;
 			if (!l || bleft - l < 0)
 				break;
 			bleft -= l;
+			shift += l;
+			*out++ = sym;
 			continue;
 		}
 
 		/* that's 0xff + 0xff */
 		if ((code >> 8) & 0xff < 0xf6) { /* 5..8 bits */
 			l = rht_bit15_8[(code >> 8) & 0xff].l;
-			*out++ = rht_bit15_8[(code >> 8) & 0xff].c;
-			shift += l;
+			sym = rht_bit15_8[(code >> 8) & 0xff].c;
 			if (!l || bleft - l < 0)
 				break;
 			bleft -= l;
+			shift += l;
+			*out++ = sym;
 			continue;
 		}
 
 		/* 0xff 0xff 0xf6..ff */
 		l = rht_bit11_4[(code >> 4) & 0xff].l;
-		shift += l;
-		if (!l || bleft - l < 0)
-			break;
-		bleft -= l;
 		if (l < 30)
-			*out++ = rht_bit11_4[(code >> 4) & 0xff].c;
+			sym = rht_bit11_4[(code >> 4) & 0xff].c;
 		else if (code & 0xff == 0xf0)
-			*out++ = 10;
+			sym = 10;
 		else if (code & 0xff == 0xf4)
-			*out++ = 13;
+			sym = 13;
 		else if (code & 0xff == 0xf8)
-			*out++ = 22;
+			sym = 22;
 		else { // 0xfc : EOS 
 			break;
 		}
+		if (!l || bleft - l < 0)
+			break;
+		bleft -= l;
+		shift += l;
+		*out++ = sym;
 	}
 	if (bleft > 0) {
 		/* some bits were not consumed after the last code, they must

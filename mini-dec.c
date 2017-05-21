@@ -1457,31 +1457,6 @@ static char huff_tmp[1024]; /* at most 32-bit per input char */
 /* debug mode : 0 = none, 1 = encoding, 2 = code */
 static int debug_mode;
 
-/* statistics */
-static int input_bytes;
-static int input_str_bytes;
-static int output_bytes;
-static int output_ints;
-static int output_int_bytes;
-static int output_huf_bytes;
-static int output_huf_enc;
-static int output_raw_bytes;
-static int output_raw_enc;
-static int output_static;
-static int output_static_bytes;
-static int output_dynamic;
-static int output_dynamic_bytes;
-static int output_static_lit;
-static int output_static_lit_bytes;
-static int output_dynamic_lit;
-static int output_dynamic_lit_bytes;
-static int output_literal;
-static int output_static_lit_wo;
-static int output_static_lit_wo_bytes;
-static int output_dynamic_lit_wo;
-static int output_dynamic_lit_wo_bytes;
-static int output_literal_wo;
-
 
 /* returns < 0 if error */
 int init_dyn(int size)
@@ -1698,7 +1673,6 @@ int lookup_dh(const char *n, const char *v, int *ni, int *vi)
 /* FIXME: nothing is emitted yet */
 int send_byte(uint8_t b)
 {
-	output_bytes++;
 	return 1;
 }
 
@@ -1722,8 +1696,6 @@ int send_var_int(uint8_t o, uint32_t v, int b)
 	}
 	sent += send_byte(v);
  out:
-	output_ints++;
-	output_int_bytes += sent;
 	return sent;
 }
 
@@ -1926,8 +1898,6 @@ int encode_string(const char *s)
 	int i;
 	int sent = 0;
 
-	input_str_bytes += strlen(s);
-
 	len = huff_enc(s);
 
 	if (len < strlen(s)) {
@@ -1935,8 +1905,6 @@ int encode_string(const char *s)
 		sent +=	send_var_int(0x80, len, 7);
 		for (i = 0; i < len; i++)
 			sent += send_byte(huff_tmp[i]);
-		output_huf_enc++;
-		output_huf_bytes += len;
 		return sent;
 	}
 
@@ -1944,8 +1912,6 @@ int encode_string(const char *s)
 	sent += send_var_int(0x00, len, 7);
 	for (i = 0; i < len; i++)
 		sent += send_byte(s[i]);
-	output_raw_enc++;
-	output_raw_bytes += len;
 	return sent;
 }
 
@@ -1954,8 +1920,6 @@ int send_static(int idx)
 	int sent;
 
 	sent = send_var_int(0x80, idx, 7);
-	output_static++;
-	output_static_bytes += sent;
 	debug_printf(1, "  => %s(%d) = %d\n", __FUNCTION__, idx, sent);
 	return sent;
 }
@@ -1965,8 +1929,6 @@ int send_dynamic(int idx)
 	int sent;
 
 	sent = send_var_int(0x80, idx + STATIC_SIZE, 7);
-	output_dynamic++;
-	output_dynamic_bytes += sent;
 	debug_printf(1, "  => %s(%d) = %d\n", __FUNCTION__, idx, sent);
 	return sent;
 }
@@ -1977,8 +1939,6 @@ int send_static_literal(int idx, const char *v)
 
 	sent += send_var_int(0x40, idx, 6);
 	sent += encode_string(v);
-	output_static_lit++;
-	output_static_lit_bytes += sent;
 	debug_printf(1, "  => %s(%d, '%s') = %d\n", __FUNCTION__, idx, v, sent);
 	return sent;
 }
@@ -1989,8 +1949,6 @@ int send_dynamic_literal(int idx, const char *v)
 
 	sent += send_var_int(0x40, idx + STATIC_SIZE, 6);
 	sent += encode_string(v);
-	output_dynamic_lit++;
-	output_dynamic_lit_bytes += sent;
 	debug_printf(1, "  => %s(%d, '%s') = %d\n", __FUNCTION__, idx, v, sent);
 	return sent;
 }
@@ -2002,7 +1960,6 @@ int send_literal(const char *n, const char *v)
 	sent += send_byte(0x40);
 	sent += encode_string(n);
 	sent += encode_string(v);
-	output_literal++;
 	debug_printf(1, "  => %s('%s', '%s') = %d\n", __FUNCTION__, n, v, sent);
 	return sent;
 }
@@ -2013,8 +1970,6 @@ int send_static_literal_wo(int idx, const char *v)
 
 	sent += send_var_int(0x00, idx, 4);
 	sent += encode_string(v);
-	output_static_lit_wo++;
-	output_static_lit_wo_bytes += sent;
 	debug_printf(1, "  => %s(%d, '%s') = %d\n", __FUNCTION__, idx, v, sent);
 	return sent;
 }
@@ -2025,8 +1980,6 @@ int send_dynamic_literal_wo(int idx, const char *v)
 
 	sent += send_var_int(0x00, idx + STATIC_SIZE, 4);
 	sent += encode_string(v);
-	output_dynamic_lit_wo++;
-	output_dynamic_lit_wo_bytes += sent;
 	debug_printf(1, "  => %s(%d, '%s') = %d\n", __FUNCTION__, idx, v, sent);
 	return sent;
 }
@@ -2038,7 +1991,6 @@ int send_literal_wo(const char *n, const char *v)
 	sent += send_byte(0x00);
 	sent += encode_string(n);
 	sent += encode_string(v);
-	output_literal_wo++;
 	debug_printf(1, "  => %s('%s', '%s') = %d\n", __FUNCTION__, n, v, sent);
 	return sent;
 }

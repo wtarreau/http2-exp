@@ -1893,7 +1893,7 @@ int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 			}
 		}
 
-		//fprintf(stderr, "out=%02d bleft=%03d code=%08x shift=%02d curr=%08x next=%08x sym=%02x l=%d\n", out-out_start, bleft, code, shift, curr, next, sym, l);
+		//fprintf(stderr, "out=%02d bleft=%03d code=%08x shift=%02d curr=%08x next=%08x sym=%02x l=%d\n", (int)(out-out_start), bleft, code, shift, curr, next, sym, l);
 
 
 		if (!l || bleft - l < 0)

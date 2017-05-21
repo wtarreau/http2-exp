@@ -1882,11 +1882,11 @@ int huff_dec(const uint8_t *huff, int hlen, char *out, int olen)
 			l = rht_bit11_4[(code >> 4) & 0xff].l;
 			if (l < 30)
 				sym = rht_bit11_4[(code >> 4) & 0xff].c;
-			else if (code & 0xff == 0xf0)
+			else if ((code & 0xff) == 0xf0)
 				sym = 10;
-			else if (code & 0xff == 0xf4)
+			else if ((code & 0xff) == 0xf4)
 				sym = 13;
-			else if (code & 0xff == 0xf8)
+			else if ((code & 0xff) == 0xf8)
 				sym = 22;
 			else { // 0xfc : EOS 
 				break;

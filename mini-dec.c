@@ -707,7 +707,7 @@ int main(int argc, char **argv)
 			printf("decoding error, stopping (%d)\n", ret);
 			exit(1);
 		}
-		if (argc) // process only cmd line if provided
+		if (argc > 1) // process only cmd line if provided
 			break;
 	}
 	return 0;

@@ -110,6 +110,15 @@ static unsigned in_len;
 /* debug mode : 0 = none, 1 = encoding, 2 = code */
 static int debug_mode;
 
+/* copies the contents from string <str> to buffer <buf> and adds a trailing
+ * zero. The caller must ensure <buf> is large enough.
+ */
+static inline const char *str(char *buf, const struct str *str)
+{
+	memcpy(buf, str->ptr, str->len);
+	buf[str->len] = 0;
+	return buf;
+}
 
 /* returns < 0 if error */
 //int init_dyn(int size)
@@ -138,20 +147,24 @@ static int debug_mode;
 //}
 
 /* takes an idx, returns the associated name */
-static inline const char *idx_to_name(int idx)
+static inline const struct str *idx_to_name(int idx)
 {
+	static const struct str dyn = { .ptr = "[dynamic_name]", 14 };
+
 	if (idx <= STATIC_SIZE)
-		return sh[idx].n.ptr;
-	return "[dynamic_name]";
+		return &sh[idx].n;
+	return &dyn;
 	//return dh->h[idx - STATIC_SIZE].n;
 }
 
 /* takes an idx, returns the associated value */
-static inline const char *idx_to_value(int idx)
+static inline const struct str *idx_to_value(int idx)
 {
+	static const struct str dyn = { .ptr = "[dynamic_value]", 15 };
+
 	if (idx <= STATIC_SIZE)
-		return sh[idx].v.ptr;
-	return "[dynamic_value]";
+		return &sh[idx].v;
+	return &dyn;
 	//return dh->h[idx - STATIC_SIZE].v;
 }
 
@@ -373,6 +386,7 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 	uint32_t nlen;
 	uint32_t vlen;
 	uint8_t huff;
+	const struct str *nstr, *vstr;
 	const char *name;
 	const char *value;
 	int c;
@@ -386,19 +400,20 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 			idx = get_var_int(&raw, &len, 7);
 			if (len == (uint32_t)-1) // truncated
 				return -1;
-			name = value = NULL;
-			printf("%02x: p14: indexed header field\n  %s: %s\n", c, idx_to_name(idx), idx_to_value(idx)); 
+
+			name  = str(ntrash, nstr = idx_to_name(idx));  nlen = nstr->len;
+			value = str(vtrash, vstr = idx_to_value(idx)); vlen = vstr->len;
+			printf("%02x: p14: indexed header field\n  %s: %s\n", c, name, value);
 		}
 		else if (*raw >= 0x41 && *raw <= 0x7f) {
 			/* literal header field with incremental indexing -- indexed name */
 			idx = get_var_int(&raw, &len, 6);
 			if (len == (uint32_t)-1) // truncated
 				return -2;
-			name = idx_to_name(idx);
-			nlen = strlen(name);
-
 			if (!len) // truncated
 				return -3;
+
+			name = str(ntrash, nstr = idx_to_name(idx));  nlen = nstr->len;
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
 			if (len == (uint32_t)-1) // truncated
@@ -416,15 +431,15 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 				else
 					value = vtrash;
 			}
-			printf("%02x: p15: literal with indexing -- name\n  %s: %s\n", c, idx_to_name(idx), value); 
+			printf("%02x: p15: literal with indexing -- name\n  %s: %s\n", c, name, value);
 		}
 		else if (*raw == 0x40) {
 			/* literal header field with incremental indexing -- literal name */
 			raw++; len--;
-
 			/* name */
 			if (!len) // truncated
 				return -6;
+
 			huff = *raw & 0x80;
 			nlen = get_var_int(&raw, &len, 7);
 			if (len == (uint32_t)-1) // truncated
@@ -446,12 +461,14 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 			/* value */
 			if (!len) // truncated
 				return -9;
+
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
 			if (len == (uint32_t)-1) // truncated
 				return -10;
 			if (len < vlen) // truncated
 				return -11;
+
 			value = (char *)raw;
 			raw += vlen;
 			len -= vlen;
@@ -471,11 +488,10 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 			idx = get_var_int(&raw, &len, 4);
 			if (len == (uint32_t)-1) // truncated
 				return -12;
-			name = idx_to_name(idx);
-			nlen = strlen(name);
-
 			if (!len) // truncated
 				return -13;
+
+			name = str(ntrash, nstr = idx_to_name(idx));  nlen = nstr->len;
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
 			if (len == (uint32_t)-1) // truncated
@@ -494,7 +510,7 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 					value = vtrash;
 			}
 
-			printf("%02x: p16: literal without indexing -- name\n  %s: %s\n", c, idx_to_name(idx), value); 
+			printf("%02x: p16: literal without indexing -- name\n  %s: %s\n", c, name, value);
 		}
 		else if (*raw == 0x00) {
 			/* literal header field without indexing -- literal name */
@@ -542,18 +558,17 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 					value = vtrash;
 			}
 
-			printf("%02x: p17: literal without indexing\n  %s: %s\n", c, name, value); 
+			printf("%02x: p17: literal without indexing\n  %s: %s\n", c, name, value);
 		}
 		else if (*raw >= 0x11 && *raw <= 0x1f) {
 			/* literal header field never indexed -- indexed name */
 			idx = get_var_int(&raw, &len, 4);
 			if (len == (uint32_t)-1) // truncated
 				return -22;
-			name = idx_to_name(idx);
-			nlen = strlen(name);
-
 			if (!len) // truncated
 				return -23;
+
+			name = str(ntrash, nstr = idx_to_name(idx));  nlen = nstr->len;
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
 			if (len == (uint32_t)-1) // truncated
@@ -563,7 +578,7 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 			value = (char *)raw;
 			raw += vlen;
 			len -= vlen;
-			printf("%02x: p17: literal never indexed -- name\n  %s: %s\n", c, idx_to_name(idx), value); 
+			printf("%02x: p17: literal never indexed -- name\n  %s: %s\n", c, name, value);
 		}
 		else if (*raw == 0x10) {
 			/* literal header field never indexed -- literal name */
@@ -578,6 +593,7 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 				return -27;
 			if (len < nlen) // truncated
 				return -28;
+
 			name = (char *)raw;
 			raw += nlen;
 			len -= nlen;

@@ -32,8 +32,97 @@ struct dyn {
 	struct hdr h[0]; /* the headers themselves */
 };
 
+/* dynamic table entry, usable for tables up to 4GB long and values of 64kB-1.
+ * The model can be improved by using offsets relative to the table entry's end
+ * or to the end of the area, or by moving the descriptors at the end of the
+ * table and the data at the beginning. This entry is 16 bytes long, which is
+ * half the bookkeeping planned by the HPACK spec. Thus it saves 16 bytes per
+ * header, meaning that even with a single header, 16 extra bytes can be stored
+ * (ie one such descriptor).
+ *
+ * Principle: the table is stored in a contiguous array containing both the
+ * descriptors and the contents. Descriptors are stored at the beginning of the
+ * array while contents are stored starting from the end. Most of the time there
+ * is enough room left in the table to insert a new header, thanks to the
+ * savings on the descriptor size. Thus by inserting headers from the end it's
+ * possible to maximize the delay before a collision of DTEs and data. In order
+ * to always insert from the right, we need to keep a reference to the latest
+ * inserted element and look before it. Each cell has a preamble (possibly empty)
+ * and a trailer (possibly empty). The last inserted cell's predecessor's trailer
+ * contains the available space before this cell. When this cell is alone, the
+ * predecessor must be the "root", a dummy descriptor describing the available
+ * space and serving as a list head. Its trailer is the free space after the
+ * descriptors, and it preamble is the free space before the descriptors (hence
+ * at the end of the area) if different. Thus most often during insertions, the
+ * root's trailer is reduced and the root becomes the previous entry of the last
+ * inserted cell.
+ *
+ * When there's no more room, and cells are deleted, this creates free space at
+ * the end of the area which is assigned to the last remaining cell's trailer.
+ * if this room is enough to store the new header, it is used, and this newly
+ * opened hole can remain contiguous as previous headers are deleted.
+ *
+ * When no more room remains available there, the following algorithm should
+ * apply :
+ *   1) look for room on last->prev->trailer (current work area)
+ *   2) look for room on root->trailer (beginning of area)
+ *   3) look for room on root->prev->trailer (end of area)
+ *   4) depending on usage statistics (eg: few headers, lots of data), it might
+ *      be worth scanning the table
+ *   5) otherwise, the table has to be defragmented. For this it is
+ *      reconstructed with all used elements packed at the end
+ *
+ * The defragmentation should be rare ; a study on live data shows on average
+ * 29.2 bytes used per header field. This plus the 32 bytes overhead fix an
+ * average of 66.9 header fields per 4kB table. This brings a 1070 bytes saving
+ * using the current storage description, ensuring that oldest headers are
+ * linearly removed by the sender before fragmentation occurs. This means that
+ * for all smaller header fields there will not be any requirement to defragment
+ * the area and most of the time it will even be possible to copy the old values
+ * directly within the buffer after creating a new entry. On average within the
+ * available space there will be enough room to store 1070/(29.2+16)=23 extra
+ * headers without switching to another place.
+ *
+ * In order to limit the risk of collision between data and descriptors, it
+ * could be worth switching steps 1 and 2 above, at the expense of causing
+ * more fragmentation. A better option could consist in keep the algorithm
+ * above except if writing a header results in less than 2-3 new headers being
+ * available in the descriptor table and the other option is possible as well.
+ *
+ * The root node appears at index 0 and stores a few elements used by the area :
+ *   - addr: starting point in bytes = #allocated entries * sizeof(dte)
+ *   - nlen: number of used entries
+ *   - vlen: next insertion index
+ *   - tlen: the real tlen, free space covers area from addr to addr+tlen
+ *   - plen: sum of all nlen+vlen
+ *   - prev,next: linking to last and first cells indexes.
+ *
+ * A typical table with 9 entries allocated and 7 used will look like this :
+ *
+ *  0 1 2 3 4 5 6 7 8 9
+ * +-+-+-+-+-+-+-+-+-+-+
+ * |R|4|3|2|1| | |7|6|5|
+ * +-+-+-+-+-+-+-+-+-+-+
+ *    <------ ^
+ *      index
+ *
+ * A more compact approach is possible with 8 bytes per descriptor, using only
+ * 16 bit offsets, with only addr, tlen, prev, next, but requiring to store the
+ * \0 after both the name and the value in each cell. This would provide a 22
+ * bytes saving per header, or about 36% of the area on average.
+ */
+struct dte {
+	uint16_t prev;  /* index of previous adjacent block */
+	uint16_t next;  /* index of next adjacent block */
+	uint16_t plen;  /* preamble length :  empty space before the data */
+	uint16_t nlen;  /* header name length */
+	uint16_t vlen;  /* header value length */
+	uint16_t tlen;  /* trailer length : empty space after the data */
+	uint32_t addr;  /* storage address, relative to the dte address */
+};
+
 /* dynamic header table. Size is sum of n+v+32 for each entry. */
-//static struct dyn *dh;
+static void *dht;
 
 /* static header table. [0] unused. */
 static const struct hdr sh[62] = {
@@ -141,6 +230,145 @@ static inline struct str rawstr(char *buf, const uint8_t *raw, size_t len)
 	return ret;
 }
 
+/* returns the number of allocated entries, including the root */
+static inline uint16_t get_dt_alloc(const struct dte *dte)
+{
+	return dte->addr / sizeof(*dte);
+}
+
+/* returns the number of entries used, not counting the root */
+static inline uint16_t get_dt_used(const struct dte *dte)
+{
+	return dte->nlen;
+}
+
+static inline uint16_t get_dt_insert(const struct dte *dte)
+{
+	return dte->vlen;
+}
+
+/* allocate a dynamic table of <size> bytes and return it initialized */
+static inline void init_dt(struct dte *root, uint32_t size)
+{
+	root->addr = sizeof(*root);
+	root->tlen = size - root->addr;
+	root->vlen = 1; /* insertion point */
+	root->plen = root->nlen = 0;
+	root->prev = root->next = 0;
+}
+
+/* allocate a dynamic table of <size> bytes and return it initialized */
+static inline void *alloc_dt(uint32_t size)
+{
+	struct dte *root;
+
+	root = calloc(1, size);
+	if (!root)
+		return root;
+
+	init_dt(root, size);
+	return root;
+}
+
+/* return a pointer to the entry designated by index <idx> (starting at 1) or
+ * NULL if this index is not there.
+ */
+static inline struct dte *hpack_get_dte(struct dte *area, uint16_t idx)
+{
+	if (idx > get_dt_used(area))
+		return NULL;
+
+	if (idx < get_dt_insert(area))
+		idx = get_dt_insert(area) - idx;
+	else
+		idx = get_dt_insert(area) - idx + get_dt_alloc(area) - 1;
+
+	return area + idx;
+}
+
+/* return a pointer to the header name for entry <dte>. */
+static inline struct str hpack_get_name(const struct dte *dte)
+{
+	struct str ret = {
+		.ptr = (void *)dte + dte->addr + dte->plen,
+		.len = dte->nlen,
+	};
+	return ret;
+}
+
+/* return a pointer to the header value for entry <dte>. */
+static inline struct str hpack_get_value(const struct dte *dte)
+{
+	struct str ret = {
+		.ptr = (void *)dte + dte->addr + dte->plen + dte->nlen,
+		.len = dte->vlen,
+	};
+	return ret;
+}
+
+/* insert entry at slot <new> after <old> for <nlen> and <vlen> bytes.
+ * The caller is supposed to have verified that the slot entry is available and
+ * that there's enough room in <old>'s tlen. The updated dte is returned for
+ * the caller to complete the operation.
+ */
+static inline struct dte *hpack_insert_after(struct dte *area, uint16_t old,
+				      uint16_t new, uint16_t nlen, uint16_t vlen)
+{
+	area[old].tlen -= nlen + vlen;
+	if (old)
+		area[new].addr = (void *)&area[old] - (void *)&area[new] + area[old].addr + area[old].plen + area[old].nlen + area[old].vlen + area[old].tlen;
+	else
+		area[new].addr = (void *)&area[old] - (void *)&area[new] + area[old].addr + area[old].tlen;
+
+	//printf("insert %d before %d (n=%d,v=%d) @%d(abs=%d), old.a=%d(abs=%d) old.t=%d\n",
+	//       new, old, nlen, vlen,
+	//       area[new].addr, (int)((void *)&area[new] - (void *)area + area[new].addr),
+	//       area[old].addr, (int)((void *)&area[old] - (void *)area + area[old].addr),
+	//       area[old].tlen);
+	area[new].plen = 0;
+	area[new].nlen = nlen;
+	area[new].vlen = vlen;
+	area[new].tlen = 0;
+	area[new].prev = old;
+	area[new].next = area[old].next;
+	area[area[old].next].prev = new;
+	area[old].next = new;
+	area[0].plen += nlen + vlen;
+	area[0].nlen++; // increment root's #elements, which is also the insertion point
+	if (area[0].nlen >= get_dt_alloc(area)) {
+		area[0].addr += sizeof(*area);
+		/* FIXME: tlen might already be too short after the insertion,
+		 * a control has to be made earlier.
+		 */
+		area[0].tlen -= sizeof(*area);
+	}
+
+	area[0].vlen++; // increment root's insertion point
+	return area + new;
+}
+
+/* insert entry at slot <new> after the root for <nlen> and <vlen> bytes.
+ * The caller is supposed to have verified that the slot entry is available
+ * and that there's enough room in root's tlen.
+ */
+static inline struct dte *hpack_insert_after_root(struct dte *area,
+                                                  uint16_t new, uint16_t nlen, uint16_t vlen)
+{
+	return hpack_insert_after(area, 0, new, nlen, vlen);
+}
+
+/* insert entry at slot <new> before first entry for <nlen> and <vlen> bytes.
+ * The caller is supposed to have verified that the slot entry is available and
+ * that there's enough room in the previous node's tlen.
+ */
+static inline struct dte *hpack_insert_before_first(struct dte *area,
+                                                    uint16_t new, uint16_t nlen, uint16_t vlen)
+{
+	uint16_t first = get_dt_insert(area) - 1;
+
+	return hpack_insert_after(area, area[first].prev, new, nlen, vlen);
+}
+
 /* returns < 0 if error */
 //int init_dyn(int size)
 //{
@@ -171,22 +399,34 @@ static inline struct str rawstr(char *buf, const uint8_t *raw, size_t len)
 static inline struct str idx_to_name(int idx)
 {
 	struct str dyn = { .ptr = "[dynamic_name]", 14 };
+	struct dte *dte;
 
 	if (idx <= STATIC_SIZE)
 		return sh[idx].n;
+
+	dte = hpack_get_dte(dht, idx - STATIC_SIZE);
+	if (!dte)
+		return mkstr("### ERR ###", 11); // error
+
+	dyn = hpack_get_name(hpack_get_dte(dht, idx - STATIC_SIZE));
 	return dyn;
-	//return dh->h[idx - STATIC_SIZE].n;
 }
 
 /* takes an idx, returns the associated value */
 static inline struct str idx_to_value(int idx)
 {
 	struct str dyn = { .ptr = "[dynamic_value]", 15 };
+	struct dte *dte;
 
 	if (idx <= STATIC_SIZE)
 		return sh[idx].v;
+
+	dte = hpack_get_dte(dht, idx - STATIC_SIZE);
+	if (!dte)
+		return mkstr("### ERR ###", 11); // error
+
+	dyn = hpack_get_value(hpack_get_dte(dht, idx - STATIC_SIZE));
 	return dyn;
-	//return dh->h[idx - STATIC_SIZE].v;
 }
 
 /* returns 0 */
@@ -694,8 +934,9 @@ int main(int argc, char **argv)
 		argc--;
 	}
 
-//	if (init_dyn(DHSIZE) < 0)
-//		exit(1);
+	dht = alloc_dt(DHSIZE);
+	if (!dht)
+		exit(1);
 
 	if (argc > 1)
 		strncpy(in_hex, argv[1], sizeof(in_hex));

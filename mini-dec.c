@@ -434,7 +434,7 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 
 			if (huff) {
 				nlen = huff_dec((uint8_t *)name, nlen, ntrash, sizeof(ntrash));
-				if (vlen == (uint32_t)-1)
+				if (nlen == (uint32_t)-1)
 					fprintf(stderr, "can't decode huffman.\n");
 				else
 					name = ntrash;
@@ -512,7 +512,7 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 
 			if (huff) {
 				nlen = huff_dec((uint8_t *)name, nlen, ntrash, sizeof(ntrash));
-				if (vlen == (uint32_t)-1)
+				if (nlen == (uint32_t)-1)
 					fprintf(stderr, "can't decode huffman.\n");
 				else
 					name = ntrash;
@@ -581,7 +581,7 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 
 			if (huff) {
 				nlen = huff_dec((uint8_t *)name, nlen, ntrash, sizeof(ntrash));
-				if (vlen == (uint32_t)-1)
+				if (nlen == (uint32_t)-1)
 					fprintf(stderr, "can't decode huffman.\n");
 				else
 					name = ntrash;

@@ -407,7 +407,7 @@ int init_dyn(int size)
 	return 0;
 }
 
-static inline pos_to_idx(const struct dyn *dh, int pos)
+static inline int pos_to_idx(const struct dyn *dh, int pos)
 {
 	return (dh->head + dh->entries - pos) % dh->entries + 1;
 }
@@ -490,7 +490,7 @@ int read_input_line(const char **np, const char **vp)
  */
 int lookup_sh(const char *n, const char *v, int *ni, int *vi)
 {
-	int i;
+	unsigned int i;
 	int b = 0;
 
 	for (i = 1; i < sizeof(sh)/sizeof(sh[0]); i++) {
@@ -549,6 +549,7 @@ int lookup_dh(const char *n, const char *v, int *ni, int *vi)
 /* FIXME: nothing is emitted yet */
 int send_byte(uint8_t b)
 {
+	(void)b;
 	output_bytes++;
 	return 1;
 }
@@ -560,7 +561,7 @@ int send_var_int(uint8_t o, uint32_t v, int b)
 {
 	int sent = 0;
 
-	if (v < ((1 << b) - 1)) {
+	if (v < (uint32_t)((1 << b) - 1)) {
 		sent += send_byte(o | v);
 		goto out;
 	}
@@ -586,7 +587,7 @@ int huff_enc(const char *s)
 	int bits = 0;
 
 	while (*s) {
-		bits += ht[*s].b;
+		bits += ht[(uint8_t)*s].b;
 		s++;
 	}
 	bits += 7;
@@ -598,8 +599,8 @@ int huff_enc(const char *s)
 /* returns the number of bytes emitted */
 int encode_string(const char *s)
 {
-	int len;
-	int i;
+	unsigned int len;
+	unsigned int i;
 	int sent = 0;
 
 	input_str_bytes += strlen(s);

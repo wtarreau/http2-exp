@@ -369,6 +369,13 @@ static inline struct dte *hpack_insert_before_first(struct dte *area,
 	return hpack_insert_after(area, area[first].prev, new, nlen, vlen);
 }
 
+
+static inline void hpack_store(struct dte *dte, struct str name, struct str value)
+{
+	memcpy((void *)dte + dte->addr + dte->plen, name.ptr, name.len);
+	memcpy((void *)dte + dte->addr + dte->plen + dte->nlen, value.ptr, value.len);
+}
+
 /* returns < 0 if error */
 //int init_dyn(int size)
 //{
@@ -692,7 +699,8 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 			} else {
 				value = rawstr(vtrash, raw - vlen, vlen);
 			}
-			printf("%02x: p15: literal with indexing -- name\n  %s: %s\n", c, name.ptr, value.ptr);
+			hpack_store(hpack_insert_before_first(dht, get_dt_used(dht) + 1, name.len, value.len), name, value);
+			printf("%02x: p15: literal with indexing -- name\n  %s: %s [used=%d]\n", c, name.ptr, value.ptr, get_dt_used(dht));
 		}
 		else if (*raw == 0x40) {
 			/* literal header field with incremental indexing -- literal name */
@@ -743,7 +751,8 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 				value = rawstr(vtrash, raw - vlen, vlen);
 			}
 
-			printf("%02x: p16: literal with indexing\n  %s: %s\n", c, name.ptr, value.ptr);
+			hpack_store(hpack_insert_before_first(dht, get_dt_used(dht) + 1, name.len, value.len), name, value);
+			printf("%02x: p16: literal with indexing\n  %s: %s [used=%d]\n", c, name.ptr, value.ptr, get_dt_used(dht));
 		}
 		else if (*raw >= 0x01 && *raw <= 0x0f) {
 			/* literal header field without indexing -- indexed name */

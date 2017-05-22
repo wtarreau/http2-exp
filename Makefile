@@ -1,4 +1,4 @@
-CFLAGS = -O0 -g
+CFLAGS = -O1 -W -Wall -Wextra -g
 OBJS = mini-enc mini-dec gen-rht
 
 all: $(OBJS)

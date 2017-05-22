@@ -99,8 +99,8 @@ static const struct hdr sh[62] = {
 static char in_hex[MAX_INPUT*2+2];
 
 /* input code */
-static char in[MAX_INPUT];
-static int in_len;
+static uint8_t in[MAX_INPUT];
+static unsigned in_len;
 
 /* debug mode : 0 = none, 1 = encoding, 2 = code */
 static int debug_mode;
@@ -236,7 +236,8 @@ int read_input_line()
  */
 int decode_input_line()
 {
-	char *i, *o;
+	char *i;
+	uint8_t *o;
 	char v1, v2;
 
 	i = in_hex; o = in;
@@ -262,7 +263,7 @@ int decode_input_line()
  */
 int lookup_sh(const char *n, const char *v, int *ni, int *vi)
 {
-	int i;
+	unsigned int i;
 	int b = 0;
 
 	for (i = 1; i < sizeof(sh)/sizeof(sh[0]); i++) {
@@ -320,9 +321,9 @@ int lookup_dh(const char *n, const char *v, int *ni, int *vi)
 
 /* reads a varint from <raw>'s lowest <b> bits and <len> bytes max (raw included).
  * returns the 32-bit value on success after updating raw_in and len_in. Forces
- * len_in to -1 on truncated input.
+ * len_in to (uint32_t)-1 on truncated input.
  */
-uint32_t get_var_int(const uint8_t **raw_in, int *len_in, int b)
+uint32_t get_var_int(const uint8_t **raw_in, uint32_t *len_in, int b)
 {
 	uint32_t ret = 0;
 	int len = *len_in;
@@ -331,7 +332,7 @@ uint32_t get_var_int(const uint8_t **raw_in, int *len_in, int b)
 
 	len--;
 	ret = *(raw++) & ((1 << b) - 1);
-	if (ret != ((1 << b) - 1))
+	if (ret != (uint32_t)((1 << b) - 1))
 		goto end;
 
 	while (1) {
@@ -356,14 +357,14 @@ uint32_t get_var_int(const uint8_t **raw_in, int *len_in, int b)
 	return ret;
 
  too_short:
-	*len_in = -1;
+	*len_in = (uint32_t)-1;
 	return 0;
 }
 
 /* only takes care of frames affecting the dynamic table for now. Returns 0 on
  * success or < 0 on error.
  */
-int decode_frame(const uint8_t *raw, int len)
+int decode_frame(const uint8_t *raw, uint32_t len)
 {
 	uint32_t idx;
 	uint32_t nlen;
@@ -380,7 +381,7 @@ int decode_frame(const uint8_t *raw, int len)
 		if (*raw >= 0x81) {
 			/* indexed header field */
 			idx = get_var_int(&raw, &len, 7);
-			if (len < 0) // truncated
+			if (len == (uint32_t)-1) // truncated
 				return -1;
 			name = value = NULL;
 			printf("%02x: p14: indexed header field\n  %s: %s\n", c, idx_to_name(idx), idx_to_value(idx)); 
@@ -388,7 +389,7 @@ int decode_frame(const uint8_t *raw, int len)
 		else if (*raw >= 0x41 && *raw <= 0x7f) {
 			/* literal header field with incremental indexing -- indexed name */
 			idx = get_var_int(&raw, &len, 6);
-			if (len < 0) // truncated
+			if (len == (uint32_t)-1) // truncated
 				return -2;
 			name = idx_to_name(idx);
 			nlen = strlen(name);
@@ -397,7 +398,7 @@ int decode_frame(const uint8_t *raw, int len)
 				return -3;
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
-			if (len < 0) // truncated
+			if (len == (uint32_t)-1) // truncated
 				return -4;
 			if (len < vlen) // truncated
 				return -5;
@@ -406,8 +407,8 @@ int decode_frame(const uint8_t *raw, int len)
 			len -= vlen;
 
 			if (huff) {
-				vlen = huff_dec(value, vlen, vtrash, sizeof(vtrash));
-				if (vlen < 0)
+				vlen = huff_dec((uint8_t *)value, vlen, vtrash, sizeof(vtrash));
+				if (vlen == (uint32_t)-1)
 					fprintf(stderr, "can't decode huffman.\n");
 				else
 					value = vtrash;
@@ -423,7 +424,7 @@ int decode_frame(const uint8_t *raw, int len)
 				return -6;
 			huff = *raw & 0x80;
 			nlen = get_var_int(&raw, &len, 7);
-			if (len < 0) // truncated
+			if (len == (uint32_t)-1) // truncated
 				return -7;
 			if (len < nlen) // truncated
 				return -8;
@@ -432,8 +433,8 @@ int decode_frame(const uint8_t *raw, int len)
 			len -= nlen;
 
 			if (huff) {
-				nlen = huff_dec(name, nlen, ntrash, sizeof(ntrash));
-				if (vlen < 0)
+				nlen = huff_dec((uint8_t *)name, nlen, ntrash, sizeof(ntrash));
+				if (vlen == (uint32_t)-1)
 					fprintf(stderr, "can't decode huffman.\n");
 				else
 					name = ntrash;
@@ -444,7 +445,7 @@ int decode_frame(const uint8_t *raw, int len)
 				return -9;
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
-			if (len < 0) // truncated
+			if (len == (uint32_t)-1) // truncated
 				return -10;
 			if (len < vlen) // truncated
 				return -11;
@@ -453,8 +454,8 @@ int decode_frame(const uint8_t *raw, int len)
 			len -= vlen;
 
 			if (huff) {
-				vlen = huff_dec(value, vlen, vtrash, sizeof(vtrash));
-				if (vlen < 0)
+				vlen = huff_dec((uint8_t *)value, vlen, vtrash, sizeof(vtrash));
+				if (vlen == (uint32_t)-1)
 					fprintf(stderr, "can't decode huffman.\n");
 				else
 					value = vtrash;
@@ -465,7 +466,7 @@ int decode_frame(const uint8_t *raw, int len)
 		else if (*raw >= 0x01 && *raw <= 0x0f) {
 			/* literal header field without indexing -- indexed name */
 			idx = get_var_int(&raw, &len, 4);
-			if (len < 0) // truncated
+			if (len == (uint32_t)-1) // truncated
 				return -12;
 			name = idx_to_name(idx);
 			nlen = strlen(name);
@@ -474,7 +475,7 @@ int decode_frame(const uint8_t *raw, int len)
 				return -13;
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
-			if (len < 0) // truncated
+			if (len == (uint32_t)-1) // truncated
 				return -14;
 			if (len < vlen) // truncated
 				return -15;
@@ -483,8 +484,8 @@ int decode_frame(const uint8_t *raw, int len)
 			len -= vlen;
 
 			if (huff) {
-				vlen = huff_dec(value, vlen, vtrash, sizeof(vtrash));
-				if (vlen < 0)
+				vlen = huff_dec((uint8_t *)value, vlen, vtrash, sizeof(vtrash));
+				if (vlen == (uint32_t)-1)
 					fprintf(stderr, "can't decode huffman.\n");
 				else
 					value = vtrash;
@@ -501,7 +502,7 @@ int decode_frame(const uint8_t *raw, int len)
 				return -16;
 			huff = *raw & 0x80;
 			nlen = get_var_int(&raw, &len, 7);
-			if (len < 0) // truncated
+			if (len == (uint32_t)-1) // truncated
 				return -17;
 			if (len < nlen) // truncated
 				return -18;
@@ -510,8 +511,8 @@ int decode_frame(const uint8_t *raw, int len)
 			len -= nlen;
 
 			if (huff) {
-				nlen = huff_dec(name, nlen, ntrash, sizeof(ntrash));
-				if (vlen < 0)
+				nlen = huff_dec((uint8_t *)name, nlen, ntrash, sizeof(ntrash));
+				if (vlen == (uint32_t)-1)
 					fprintf(stderr, "can't decode huffman.\n");
 				else
 					name = ntrash;
@@ -522,7 +523,7 @@ int decode_frame(const uint8_t *raw, int len)
 				return -19;
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
-			if (len < 0) // truncated
+			if (len == (uint32_t)-1) // truncated
 				return -20;
 			if (len < vlen) // truncated
 				return -21;
@@ -531,8 +532,8 @@ int decode_frame(const uint8_t *raw, int len)
 			len -= vlen;
 
 			if (huff) {
-				vlen = huff_dec(value, vlen, vtrash, sizeof(vtrash));
-				if (vlen < 0)
+				vlen = huff_dec((uint8_t *)value, vlen, vtrash, sizeof(vtrash));
+				if (vlen == (uint32_t)-1)
 					fprintf(stderr, "can't decode huffman.\n");
 				else
 					value = vtrash;
@@ -543,7 +544,7 @@ int decode_frame(const uint8_t *raw, int len)
 		else if (*raw >= 0x11 && *raw <= 0x1f) {
 			/* literal header field never indexed -- indexed name */
 			idx = get_var_int(&raw, &len, 4);
-			if (len < 0) // truncated
+			if (len == (uint32_t)-1) // truncated
 				return -22;
 			name = idx_to_name(idx);
 			nlen = strlen(name);
@@ -552,7 +553,7 @@ int decode_frame(const uint8_t *raw, int len)
 				return -23;
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
-			if (len < 0) // truncated
+			if (len == (uint32_t)-1) // truncated
 				return -24;
 			if (len < vlen) // truncated
 				return -25;
@@ -570,7 +571,7 @@ int decode_frame(const uint8_t *raw, int len)
 				return -26;
 			huff = *raw & 0x80;
 			nlen = get_var_int(&raw, &len, 7);
-			if (len < 0) // truncated
+			if (len == (uint32_t)-1) // truncated
 				return -27;
 			if (len < nlen) // truncated
 				return -28;
@@ -579,8 +580,8 @@ int decode_frame(const uint8_t *raw, int len)
 			len -= nlen;
 
 			if (huff) {
-				nlen = huff_dec(name, nlen, ntrash, sizeof(ntrash));
-				if (vlen < 0)
+				nlen = huff_dec((uint8_t *)name, nlen, ntrash, sizeof(ntrash));
+				if (vlen == (uint32_t)-1)
 					fprintf(stderr, "can't decode huffman.\n");
 				else
 					name = ntrash;
@@ -591,7 +592,7 @@ int decode_frame(const uint8_t *raw, int len)
 				return -29;
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
-			if (len < 0) // truncated
+			if (len == (uint32_t)-1) // truncated
 				return -30;
 			if (len < vlen) // truncated
 				return -31;
@@ -600,8 +601,8 @@ int decode_frame(const uint8_t *raw, int len)
 			len -= vlen;
 
 			if (huff) {
-				vlen = huff_dec(value, vlen, vtrash, sizeof(vtrash));
-				if (vlen < 0)
+				vlen = huff_dec((uint8_t *)value, vlen, vtrash, sizeof(vtrash));
+				if (vlen == (uint32_t)-1)
 					fprintf(stderr, "can't decode huffman.\n");
 				else
 					value = vtrash;
@@ -612,7 +613,7 @@ int decode_frame(const uint8_t *raw, int len)
 		else if (*raw >= 0x20 && *raw <= 0x3f) {
 			/* max dyn table size change */
 			idx = get_var_int(&raw, &len, 5);
-			if (len < 0) // truncated
+			if (len == (uint32_t)-1) // truncated
 				return -32;
 		}
 		else {

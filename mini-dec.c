@@ -13,9 +13,14 @@
 
 #define debug_printf(l, f, ...)  do { if (debug_mode >= (l)) printf((f), ##__VA_ARGS__); } while (0)
 
+struct str {
+	char  *ptr;
+	size_t len;
+};
+
 struct hdr {
-	char *n; /* name */
-	char *v; /* value */
+	struct str n; /* name */
+	struct str v; /* value */
 };
 
 struct dyn {
@@ -32,67 +37,67 @@ struct dyn {
 
 /* static header table. [0] unused. */
 static const struct hdr sh[62] = {
-	[1] = { .n = ":authority", .v = "" },
-	[2] = { .n = ":method", .v = "GET" },
-	[3] = { .n = ":method", .v = "POST" },
-	[4] = { .n = ":path", .v = "/" },
-	[5] = { .n = ":path", .v = "/index.html" },
-	[6] = { .n = ":scheme", .v = "http" },
-	[7] = { .n = ":scheme", .v = "https" },
-	[8] = { .n = ":status", .v = "200" },
-	[9] = { .n = ":status", .v = "204" },
-	[10] = { .n = ":status", .v = "206" },
-	[11] = { .n = ":status", .v = "304" },
-	[12] = { .n = ":status", .v = "400" },
-	[13] = { .n = ":status", .v = "404" },
-	[14] = { .n = ":status", .v = "500" },
-	[15] = { .n = "accept-charset", .v = "" },
-	[16] = { .n = "accept-encoding", .v = "gzip, deflate" },
-	[17] = { .n = "accept-language", .v = "" },
-	[18] = { .n = "accept-ranges", .v = "" },
-	[19] = { .n = "accept", .v = "" },
-	[20] = { .n = "access-control-allow-origin", .v = "" },
-	[21] = { .n = "age", .v = "" },
-	[22] = { .n = "allow", .v = "" },
-	[23] = { .n = "authorization", .v = "" },
-	[24] = { .n = "cache-control", .v = "" },
-	[25] = { .n = "content-disposition", .v = "" },
-	[26] = { .n = "content-encoding", .v = "" },
-	[27] = { .n = "content-language", .v = "" },
-	[28] = { .n = "content-length", .v = "" },
-	[29] = { .n = "content-location", .v = "" },
-	[30] = { .n = "content-range", .v = "" },
-	[31] = { .n = "content-type", .v = "" },
-	[32] = { .n = "cookie", .v = "" },
-	[33] = { .n = "date", .v = "" },
-	[34] = { .n = "etag", .v = "" },
-	[35] = { .n = "expect", .v = "" },
-	[36] = { .n = "expires", .v = "" },
-	[37] = { .n = "from", .v = "" },
-	[38] = { .n = "host", .v = "" },
-	[39] = { .n = "if-match", .v = "" },
-	[40] = { .n = "if-modified-since", .v = "" },
-	[41] = { .n = "if-none-match", .v = "" },
-	[42] = { .n = "if-range", .v = "" },
-	[43] = { .n = "if-unmodified-since", .v = "" },
-	[44] = { .n = "last-modified", .v = "" },
-	[45] = { .n = "link", .v = "" },
-	[46] = { .n = "location", .v = "" },
-	[47] = { .n = "max-forwards", .v = "" },
-	[48] = { .n = "proxy-authenticate", .v = "" },
-	[49] = { .n = "proxy-authorization", .v = "" },
-	[50] = { .n = "range", .v = "" },
-	[51] = { .n = "referer", .v = "" },
-	[52] = { .n = "refresh", .v = "" },
-	[53] = { .n = "retry-after", .v = "" },
-	[54] = { .n = "server", .v = "" },
-	[55] = { .n = "set-cookie", .v = "" },
-	[56] = { .n = "strict-transport-security", .v = "" },
-	[57] = { .n = "transfer-encoding", .v = "" },
-	[58] = { .n = "user-agent", .v = "" },
-	[59] = { .n = "vary", .v = "" },
-	[60] = { .n = "via", .v = "" },
-	[61] = { .n = "www-authenticate", .v = "" },
+	[ 1] = { .n = { ":authority",                  10 }, .v = { "",               0 } },
+	[ 2] = { .n = { ":method",                      7 }, .v = { "GET",            3 } },
+	[ 3] = { .n = { ":method",                      7 }, .v = { "POST",           4 } },
+	[ 4] = { .n = { ":path",                        5 }, .v = { "/",              1 } },
+	[ 5] = { .n = { ":path",                        5 }, .v = { "/index.html",   11 } },
+	[ 6] = { .n = { ":scheme",                      7 }, .v = { "http",           4 } },
+	[ 7] = { .n = { ":scheme",                      7 }, .v = { "https",          5 } },
+	[ 8] = { .n = { ":status",                      7 }, .v = { "200",            3 } },
+	[ 9] = { .n = { ":status",                      7 }, .v = { "204",            3 } },
+	[10] = { .n = { ":status",                      7 }, .v = { "206",            3 } },
+	[11] = { .n = { ":status",                      7 }, .v = { "304",            3 } },
+	[12] = { .n = { ":status",                      7 }, .v = { "400",            3 } },
+	[13] = { .n = { ":status",                      7 }, .v = { "404",            3 } },
+	[14] = { .n = { ":status",                      7 }, .v = { "500",            3 } },
+	[15] = { .n = { "accept-charset",              14 }, .v = { "",               0 } },
+	[16] = { .n = { "accept-encoding",             15 }, .v = { "gzip, deflate", 13 } },
+	[17] = { .n = { "accept-language",             15 }, .v = { "",               0 } },
+	[18] = { .n = { "accept-ranges",               13 }, .v = { "",               0 } },
+	[19] = { .n = { "accept",                       6 }, .v = { "",               0 } },
+	[20] = { .n = { "access-control-allow-origin", 27 }, .v = { "",               0 } },
+	[21] = { .n = { "age",                          3 }, .v = { "",               0 } },
+	[22] = { .n = { "allow",                        5 }, .v = { "",               0 } },
+	[23] = { .n = { "authorization",               13 }, .v = { "",               0 } },
+	[24] = { .n = { "cache-control",               13 }, .v = { "",               0 } },
+	[25] = { .n = { "content-disposition",         19 }, .v = { "",               0 } },
+	[26] = { .n = { "content-encoding",            16 }, .v = { "",               0 } },
+	[27] = { .n = { "content-language",            16 }, .v = { "",               0 } },
+	[28] = { .n = { "content-length",              14 }, .v = { "",               0 } },
+	[29] = { .n = { "content-location",            16 }, .v = { "",               0 } },
+	[30] = { .n = { "content-range",               13 }, .v = { "",               0 } },
+	[31] = { .n = { "content-type",                12 }, .v = { "",               0 } },
+	[32] = { .n = { "cookie",                       6 }, .v = { "",               0 } },
+	[33] = { .n = { "date",                         4 }, .v = { "",               0 } },
+	[34] = { .n = { "etag",                         4 }, .v = { "",               0 } },
+	[35] = { .n = { "expect",                       6 }, .v = { "",               0 } },
+	[36] = { .n = { "expires",                      7 }, .v = { "",               0 } },
+	[37] = { .n = { "from",                         4 }, .v = { "",               0 } },
+	[38] = { .n = { "host",                         4 }, .v = { "",               0 } },
+	[39] = { .n = { "if-match",                     8 }, .v = { "",               0 } },
+	[40] = { .n = { "if-modified-since",           17 }, .v = { "",               0 } },
+	[41] = { .n = { "if-none-match",               13 }, .v = { "",               0 } },
+	[42] = { .n = { "if-range",                     8 }, .v = { "",               0 } },
+	[43] = { .n = { "if-unmodified-since",         19 }, .v = { "",               0 } },
+	[44] = { .n = { "last-modified",               13 }, .v = { "",               0 } },
+	[45] = { .n = { "link",                         4 }, .v = { "",               0 } },
+	[46] = { .n = { "location",                     8 }, .v = { "",               0 } },
+	[47] = { .n = { "max-forwards",                12 }, .v = { "",               0 } },
+	[48] = { .n = { "proxy-authenticate",          18 }, .v = { "",               0 } },
+	[49] = { .n = { "proxy-authorization",         19 }, .v = { "",               0 } },
+	[50] = { .n = { "range",                        5 }, .v = { "",               0 } },
+	[51] = { .n = { "referer",                      7 }, .v = { "",               0 } },
+	[52] = { .n = { "refresh",                      7 }, .v = { "",               0 } },
+	[53] = { .n = { "retry-after",                 11 }, .v = { "",               0 } },
+	[54] = { .n = { "server",                       6 }, .v = { "",               0 } },
+	[55] = { .n = { "set-cookie",                  10 }, .v = { "",               0 } },
+	[56] = { .n = { "strict-transport-security",   25 }, .v = { "",               0 } },
+	[57] = { .n = { "transfer-encoding",           17 }, .v = { "",               0 } },
+	[58] = { .n = { "user-agent",                  10 }, .v = { "",               0 } },
+	[59] = { .n = { "vary",                         4 }, .v = { "",               0 } },
+	[60] = { .n = { "via",                          3 }, .v = { "",               0 } },
+	[61] = { .n = { "www-authenticate",            16 }, .v = { "",               0 } },
 };
 
 /* input line: hex chars + \n + \0 */
@@ -136,7 +141,7 @@ static int debug_mode;
 static inline const char *idx_to_name(int idx)
 {
 	if (idx <= STATIC_SIZE)
-		return sh[idx].n;
+		return sh[idx].n.ptr;
 	return "[dynamic_name]";
 	//return dh->h[idx - STATIC_SIZE].n;
 }
@@ -145,7 +150,7 @@ static inline const char *idx_to_name(int idx)
 static inline const char *idx_to_value(int idx)
 {
 	if (idx <= STATIC_SIZE)
-		return sh[idx].v;
+		return sh[idx].v.ptr;
 	return "[dynamic_value]";
 	//return dh->h[idx - STATIC_SIZE].v;
 }
@@ -265,8 +270,8 @@ int lookup_sh(const char *n, const char *v, int *ni, int *vi)
 	int b = 0;
 
 	for (i = 1; i < sizeof(sh)/sizeof(sh[0]); i++) {
-		if (strcasecmp(n, sh[i].n) == 0) {
-			if (strcasecmp(v, sh[i].v) == 0) {
+		if (strcasecmp(n, sh[i].n.ptr) == 0) {
+			if (strcasecmp(v, sh[i].v.ptr) == 0) {
 				*ni = *vi = i;
 				return 1;
 			}

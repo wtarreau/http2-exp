@@ -28,7 +28,7 @@ struct dyn {
 };
 
 /* dynamic header table. Size is sum of n+v+32 for each entry. */
-static struct dyn *dh;
+//static struct dyn *dh;
 
 /* static header table. [0] unused. */
 static const struct hdr sh[62] = {
@@ -107,39 +107,38 @@ static int debug_mode;
 
 
 /* returns < 0 if error */
-int init_dyn(int size)
-{
-	int entries = size / 32;
+//int init_dyn(int size)
+//{
+//	int entries = size / 32;
+//
+//	dh = calloc(1, sizeof(*dh) + entries * sizeof(dh->h[0]));
+//	if (!dh)
+//		return -1;
+//
+//	dh->size = size;
+//	dh->entries = entries;
+//	debug_printf(2, "allocated %d entries for %d bytes\n", entries, size);
+//	return 0;
+//}
 
-	dh = calloc(1, sizeof(*dh) + entries * sizeof(dh->h[0]));
-	if (!dh)
-		return -1;
-
-	dh->size = size;
-	dh->entries = entries;
-	debug_printf(2, "allocated %d entries for %d bytes\n", entries, size);
-	return 0;
-}
-
-static inline int pos_to_idx(const struct dyn *dh, int pos)
-{
-	return (dh->head + dh->entries - pos) % dh->entries + 1;
-}
+//static inline int pos_to_idx(const struct dyn *dh, int pos)
+//{
+//	return (dh->head + dh->entries - pos) % dh->entries + 1;
+//}
 
 /* takes an idx, returns current table's position, it's the reverse of pos_to_idx */
-static inline int idx_to_pos(const struct dyn *dh, int idx)
-{
-	return (dh->head + dh->entries - idx + 1) % dh->entries;
-}
+//static inline int idx_to_pos(const struct dyn *dh, int idx)
+//{
+//	//return (dh->head + dh->entries - idx + 1) % dh->entries;
+//}
 
 /* takes an idx, returns the associated name */
 static inline const char *idx_to_name(int idx)
 {
 	if (idx <= STATIC_SIZE)
 		return sh[idx].n;
-
-return "[dynamic_name]";
-	return dh->h[idx - STATIC_SIZE].n;
+	return "[dynamic_name]";
+	//return dh->h[idx - STATIC_SIZE].n;
 }
 
 /* takes an idx, returns the associated value */
@@ -147,38 +146,37 @@ static inline const char *idx_to_value(int idx)
 {
 	if (idx <= STATIC_SIZE)
 		return sh[idx].v;
-return "[dynamic_value]";
-	return dh->h[idx - STATIC_SIZE].v;
+	return "[dynamic_value]";
+	//return dh->h[idx - STATIC_SIZE].v;
 }
 
 /* returns 0 */
-int add_to_dyn(const char *n, const char *v)
-{
-	int ln = strlen(n);
-	int lv = strlen(v);
-	struct hdr *h;
-
-	while (ln + lv + 32 + dh->len > dh->size) {
-		h = &dh->h[dh->tail];
-		dh->len -= strlen(h->n) + strlen(h->v) + 32;
-		debug_printf(2, "====== purging %d : <%s>,<%s> ======\n", pos_to_idx(dh, dh->tail), h->n, h->v);
-		free(h->n);
-		free(h->v);
-		h->v = h->n = NULL;
-		dh->tail++;
-		if (dh->tail >= dh->entries)
-			dh->tail = 0;
-	}
-	dh->len += ln + lv + 32;
-
-	h = &dh->h[dh->head];
-	h->n = strdup(n);
-	h->v = strdup(v);
-	dh->head++;
-	if (dh->head >= dh->entries)
-		dh->head = 0;
-	return 0;
-}
+//int add_to_dyn(const char *n, const char *v)
+//{
+//	int ln = strlen(n);
+//	int lv = strlen(v);
+//	struct hdr *h;
+//
+//	while (ln + lv + 32 + dh->len > dh->size) {
+//		h = &dh->h[dh->tail];
+//		dh->len -= strlen(h->n) + strlen(h->v) + 32;
+//		debug_printf(2, "====== purging %d : <%s>,<%s> ======\n", pos_to_idx(dh, dh->tail), h->n, h->v);
+//		free(h->n);
+//		free(h->v);
+//		h->v = h->n = NULL;
+//		dh->tail++;
+//		if (dh->tail >= dh->entries)
+//			dh->tail = 0;
+//	}
+//	dh->len += ln + lv + 32;
+//
+//	h = &dh->h[dh->head];
+//	h->n = strdup(n);
+//	h->v = strdup(v);
+//	dh->head++;
+//	if (dh->head >= dh->entries)
+//		dh->head = 0;
+//}
 
 /* returns 0 to 15 for 0..[fF], or < 0 if not hex */
 static inline char hextoi(char c)
@@ -289,35 +287,35 @@ int lookup_sh(const char *n, const char *v, int *ni, int *vi)
  * differs (and has to be sent as a literal). Returns non-zero
  * if an entry was found.
  */
-int lookup_dh(const char *n, const char *v, int *ni, int *vi)
-{
-	int i;
-	int b = 0;
-
-	i = dh->head;
-	while (i != dh->tail) {
-		i--;
-		if (i < 0)
-			i = dh->entries - 1;
-
-		if (strcasecmp(n, dh->h[i].n) == 0) {
-			if (strcasecmp(v, dh->h[i].v) == 0) {
-				i = pos_to_idx(dh, i);
-				*ni = *vi = i;
-				return 1;
-			}
-			if (!b)
-				b = i;
-		}
-	}
-	if (!b)
-		return 0;
-
-	b = pos_to_idx(dh, b);
-	*ni = b;
-	*vi = 0;
-	return 1;
-}
+//int lookup_dh(const char *n, const char *v, int *ni, int *vi)
+//{
+//	int i;
+//	int b = 0;
+//
+//	i = dh->head;
+//	while (i != dh->tail) {
+//		i--;
+//		if (i < 0)
+//			i = dh->entries - 1;
+//
+//		if (strcasecmp(n, dh->h[i].n) == 0) {
+//			if (strcasecmp(v, dh->h[i].v) == 0) {
+//				i = pos_to_idx(dh, i);
+//				*ni = *vi = i;
+//				return 1;
+//			}
+//			if (!b)
+//				b = i;
+//		}
+//	}
+//	if (!b)
+//		return 0;
+//
+//	b = pos_to_idx(dh, b);
+//	*ni = b;
+//	*vi = 0;
+//	return 1;
+//}
 
 /* reads a varint from <raw>'s lowest <b> bits and <len> bytes max (raw included).
  * returns the 32-bit value on success after updating raw_in and len_in. Forces
@@ -639,8 +637,8 @@ int main(int argc, char **argv)
 		argc--;
 	}
 
-	if (init_dyn(DHSIZE) < 0)
-		exit(1);
+//	if (init_dyn(DHSIZE) < 0)
+//		exit(1);
 
 	if (argc > 1)
 		strncpy(in_hex, argv[1], sizeof(in_hex));

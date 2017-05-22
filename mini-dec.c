@@ -102,8 +102,6 @@ static char in_hex[MAX_INPUT*2+2];
 static char in[MAX_INPUT];
 static int in_len;
 
-static char huff_tmp[1024]; /* at most 32-bit per input char */
-
 /* debug mode : 0 = none, 1 = encoding, 2 = code */
 static int debug_mode;
 
@@ -320,35 +318,6 @@ int lookup_dh(const char *n, const char *v, int *ni, int *vi)
 	return 1;
 }
 
-/* FIXME: nothing is emitted yet */
-int send_byte(uint8_t b)
-{
-	return 1;
-}
-
-/* encodes <v> on <b> bits using a variable encoding, and OR the first byte
- * with byte <o>. Returns the number of bytes emitted.
- */
-int send_var_int(uint8_t o, uint32_t v, int b)
-{
-	int sent = 0;
-
-	if (v < ((1 << b) - 1)) {
-		sent += send_byte(o | v);
-		goto out;
-	}
-
-	sent += send_byte(o | ((1 << b) - 1));
-	v -= ((1 << b) - 1);
-	while (v >= 128) {
-		sent += send_byte(128 | v);
-		v >>= 7;
-	}
-	sent += send_byte(v);
- out:
-	return sent;
-}
-
 /* reads a varint from <raw>'s lowest <b> bits and <len> bytes max (raw included).
  * returns the 32-bit value on success after updating raw_in and len_in. Forces
  * len_in to -1 on truncated input.
@@ -389,110 +358,6 @@ uint32_t get_var_int(const uint8_t **raw_in, int *len_in, int b)
  too_short:
 	*len_in = -1;
 	return 0;
-}
-
-/* returns the number of bytes emitted */
-int encode_string(const char *s)
-{
-	int len;
-	int i;
-	int sent = 0;
-
-	len = huff_enc(s, huff_tmp);
-
-	if (len < strlen(s)) {
-		/* send huffman encoding */
-		sent +=	send_var_int(0x80, len, 7);
-		for (i = 0; i < len; i++)
-			sent += send_byte(huff_tmp[i]);
-		return sent;
-	}
-
-	len = strlen(s);
-	sent += send_var_int(0x00, len, 7);
-	for (i = 0; i < len; i++)
-		sent += send_byte(s[i]);
-	return sent;
-}
-
-int send_static(int idx)
-{
-	int sent;
-
-	sent = send_var_int(0x80, idx, 7);
-	debug_printf(1, "  => %s(%d) = %d\n", __FUNCTION__, idx, sent);
-	return sent;
-}
-
-int send_dynamic(int idx)
-{
-	int sent;
-
-	sent = send_var_int(0x80, idx + STATIC_SIZE, 7);
-	debug_printf(1, "  => %s(%d) = %d\n", __FUNCTION__, idx, sent);
-	return sent;
-}
-
-int send_static_literal(int idx, const char *v)
-{
-	int sent = 0;
-
-	sent += send_var_int(0x40, idx, 6);
-	sent += encode_string(v);
-	debug_printf(1, "  => %s(%d, '%s') = %d\n", __FUNCTION__, idx, v, sent);
-	return sent;
-}
-
-int send_dynamic_literal(int idx, const char *v)
-{
-	int sent = 0;
-
-	sent += send_var_int(0x40, idx + STATIC_SIZE, 6);
-	sent += encode_string(v);
-	debug_printf(1, "  => %s(%d, '%s') = %d\n", __FUNCTION__, idx, v, sent);
-	return sent;
-}
-
-int send_literal(const char *n, const char *v)
-{
-	int sent = 0;
-
-	sent += send_byte(0x40);
-	sent += encode_string(n);
-	sent += encode_string(v);
-	debug_printf(1, "  => %s('%s', '%s') = %d\n", __FUNCTION__, n, v, sent);
-	return sent;
-}
-
-int send_static_literal_wo(int idx, const char *v)
-{
-	int sent = 0;
-
-	sent += send_var_int(0x00, idx, 4);
-	sent += encode_string(v);
-	debug_printf(1, "  => %s(%d, '%s') = %d\n", __FUNCTION__, idx, v, sent);
-	return sent;
-}
-
-int send_dynamic_literal_wo(int idx, const char *v)
-{
-	int sent = 0;
-
-	sent += send_var_int(0x00, idx + STATIC_SIZE, 4);
-	sent += encode_string(v);
-	debug_printf(1, "  => %s(%d, '%s') = %d\n", __FUNCTION__, idx, v, sent);
-	return sent;
-}
-
-int send_literal_wo(const char *n, const char *v)
-{
-	int sent = 0;
-
-	sent += send_byte(0x00);
-	sent += encode_string(n);
-	sent += encode_string(v);
-	debug_printf(1, "  => %s('%s', '%s') = %d\n", __FUNCTION__, n, v, sent);
-	return sent;
 }
 
 /* only takes care of frames affecting the dynamic table for now. Returns 0 on

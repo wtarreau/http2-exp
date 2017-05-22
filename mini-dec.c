@@ -110,24 +110,35 @@ static unsigned in_len;
 /* debug mode : 0 = none, 1 = encoding, 2 = code */
 static int debug_mode;
 
+/* makes an str struct from a string and a length */
+static inline struct str mkstr(const char *ptr, size_t len)
+{
+	struct str ret = { .ptr = (char *)ptr, .len = len };
+	return ret;
+}
+
 /* copies the contents from string <str> to buffer <buf> and adds a trailing
  * zero. The caller must ensure <buf> is large enough.
  */
-static inline const char *str(char *buf, const struct str *str)
+static inline struct str padstr(char *buf, const struct str str)
 {
-	memcpy(buf, str->ptr, str->len);
-	buf[str->len] = 0;
-	return buf;
+	struct str ret = { .ptr = buf, .len = str.len };
+
+	memcpy(buf, str.ptr, str.len);
+	buf[str.len] = 0;
+	return ret;
 }
 
 /* copies <len> bytes from string <raw> to buffer <buf> and adds a trailing
  * zero. The caller must ensure <buf> is large enough.
  */
-static inline const char *rawstr(char *buf, const uint8_t *raw, size_t len)
+static inline struct str rawstr(char *buf, const uint8_t *raw, size_t len)
 {
+	struct str ret = { .ptr = buf, .len = len };
+
 	memcpy(buf, raw, len);
 	buf[len] = 0;
-	return buf;
+	return ret;
 }
 
 /* returns < 0 if error */
@@ -157,24 +168,24 @@ static inline const char *rawstr(char *buf, const uint8_t *raw, size_t len)
 //}
 
 /* takes an idx, returns the associated name */
-static inline const struct str *idx_to_name(int idx)
+static inline struct str idx_to_name(int idx)
 {
-	static const struct str dyn = { .ptr = "[dynamic_name]", 14 };
+	struct str dyn = { .ptr = "[dynamic_name]", 14 };
 
 	if (idx <= STATIC_SIZE)
-		return &sh[idx].n;
-	return &dyn;
+		return sh[idx].n;
+	return dyn;
 	//return dh->h[idx - STATIC_SIZE].n;
 }
 
 /* takes an idx, returns the associated value */
-static inline const struct str *idx_to_value(int idx)
+static inline struct str idx_to_value(int idx)
 {
-	static const struct str dyn = { .ptr = "[dynamic_value]", 15 };
+	struct str dyn = { .ptr = "[dynamic_value]", 15 };
 
 	if (idx <= STATIC_SIZE)
-		return &sh[idx].v;
-	return &dyn;
+		return sh[idx].v;
+	return dyn;
 	//return dh->h[idx - STATIC_SIZE].v;
 }
 
@@ -396,9 +407,8 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 	uint32_t nlen;
 	uint32_t vlen;
 	uint8_t huff;
-	const struct str *nstr, *vstr;
-	const char *name;
-	const char *value;
+	struct str name;
+	struct str value;
 	int c;
 	static char ntrash[16384];
 	static char vtrash[16384];
@@ -411,9 +421,9 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 			if (len == (uint32_t)-1) // truncated
 				return -1;
 
-			name  = str(ntrash, nstr = idx_to_name(idx));  nlen = nstr->len;
-			value = str(vtrash, vstr = idx_to_value(idx)); vlen = vstr->len;
-			printf("%02x: p14: indexed header field\n  %s: %s\n", c, name, value);
+			name  = padstr(ntrash, idx_to_name(idx));
+			value = padstr(vtrash, idx_to_value(idx));
+			printf("%02x: p14: indexed header field\n  %s: %s\n", c, name.ptr, value.ptr);
 		}
 		else if (*raw >= 0x41 && *raw <= 0x7f) {
 			/* literal header field with incremental indexing -- indexed name */
@@ -423,7 +433,7 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 			if (!len) // truncated
 				return -3;
 
-			name = str(ntrash, nstr = idx_to_name(idx));  nlen = nstr->len;
+			name = padstr(ntrash, idx_to_name(idx));
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
 			if (len == (uint32_t)-1) // truncated
@@ -438,11 +448,11 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 				vlen = huff_dec(raw - vlen, vlen, vtrash, sizeof(vtrash));
 				if (vlen == (uint32_t)-1)
 					fprintf(stderr, "1: can't decode huffman.\n");
-				value = vtrash;
+				value = mkstr(vtrash, vlen);
 			} else {
 				value = rawstr(vtrash, raw - vlen, vlen);
 			}
-			printf("%02x: p15: literal with indexing -- name\n  %s: %s\n", c, name, value);
+			printf("%02x: p15: literal with indexing -- name\n  %s: %s\n", c, name.ptr, value.ptr);
 		}
 		else if (*raw == 0x40) {
 			/* literal header field with incremental indexing -- literal name */
@@ -465,7 +475,7 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 				nlen = huff_dec(raw - nlen, nlen, ntrash, sizeof(ntrash));
 				if (nlen == (uint32_t)-1)
 					fprintf(stderr, "2: can't decode huffman.\n");
-				name = ntrash;
+				name = mkstr(ntrash, nlen);
 			} else {
 				name = rawstr(ntrash, raw - nlen, nlen);
 			}
@@ -488,12 +498,12 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 				vlen = huff_dec(raw - vlen, vlen, vtrash, sizeof(vtrash));
 				if (vlen == (uint32_t)-1)
 					fprintf(stderr, "3: can't decode huffman.\n");
-				value = vtrash;
+				value = mkstr(vtrash, vlen);
 			} else {
 				value = rawstr(vtrash, raw - vlen, vlen);
 			}
 
-			printf("%02x: p16: literal with indexing\n  %s: %s\n", c, name, value); 
+			printf("%02x: p16: literal with indexing\n  %s: %s\n", c, name.ptr, value.ptr);
 		}
 		else if (*raw >= 0x01 && *raw <= 0x0f) {
 			/* literal header field without indexing -- indexed name */
@@ -503,7 +513,7 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 			if (!len) // truncated
 				return -13;
 
-			name = str(ntrash, nstr = idx_to_name(idx));  nlen = nstr->len;
+			name = padstr(ntrash, idx_to_name(idx));
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
 			if (len == (uint32_t)-1) // truncated
@@ -518,12 +528,12 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 				vlen = huff_dec(raw - vlen, vlen, vtrash, sizeof(vtrash));
 				if (vlen == (uint32_t)-1)
 					fprintf(stderr, "4: can't decode huffman.\n");
-				value = vtrash;
+				value = mkstr(vtrash, vlen);
 			} else {
 				value = rawstr(vtrash, raw - vlen, vlen);
 			}
 
-			printf("%02x: p16: literal without indexing -- name\n  %s: %s\n", c, name, value);
+			printf("%02x: p16: literal without indexing -- name\n  %s: %s\n", c, name.ptr, value.ptr);
 		}
 		else if (*raw == 0x00) {
 			/* literal header field without indexing -- literal name */
@@ -546,7 +556,7 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 				nlen = huff_dec(raw - nlen, nlen, ntrash, sizeof(ntrash));
 				if (nlen == (uint32_t)-1)
 					fprintf(stderr, "5: can't decode huffman.\n");
-				name = ntrash;
+				name = mkstr(ntrash, nlen);
 			} else {
 				name = rawstr(ntrash, raw - nlen, nlen);
 			}
@@ -568,12 +578,12 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 				vlen = huff_dec(raw - vlen, vlen, vtrash, sizeof(vtrash));
 				if (vlen == (uint32_t)-1)
 					fprintf(stderr, "6: can't decode huffman.\n");
-				value = vtrash;
+				value = mkstr(vtrash, vlen);
 			} else {
 				value = rawstr(vtrash, raw - vlen, vlen);
 			}
 
-			printf("%02x: p17: literal without indexing\n  %s: %s\n", c, name, value);
+			printf("%02x: p17: literal without indexing\n  %s: %s\n", c, name.ptr, value.ptr);
 		}
 		else if (*raw >= 0x11 && *raw <= 0x1f) {
 			/* literal header field never indexed -- indexed name */
@@ -583,7 +593,7 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 			if (!len) // truncated
 				return -23;
 
-			name = str(ntrash, nstr = idx_to_name(idx));  nlen = nstr->len;
+			name = padstr(ntrash, idx_to_name(idx));
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
 			if (len == (uint32_t)-1) // truncated
@@ -598,12 +608,12 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 				vlen = huff_dec(raw - vlen, vlen, vtrash, sizeof(vtrash));
 				if (vlen == (uint32_t)-1)
 					fprintf(stderr, "7: can't decode huffman.\n");
-				value = vtrash;
+				value = mkstr(vtrash, vlen);
 			} else {
 				value = rawstr(vtrash, raw - vlen, vlen);
 			}
 
-			printf("%02x: p17: literal never indexed -- name\n  %s: %s\n", c, name, value);
+			printf("%02x: p17: literal never indexed -- name\n  %s: %s\n", c, name.ptr, value.ptr);
 		}
 		else if (*raw == 0x10) {
 			/* literal header field never indexed -- literal name */
@@ -626,7 +636,7 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 				nlen = huff_dec(raw - nlen, nlen, ntrash, sizeof(ntrash));
 				if (nlen == (uint32_t)-1)
 					fprintf(stderr, "8: can't decode huffman.\n");
-				name = ntrash;
+				name = mkstr(ntrash, nlen);
 			} else {
 				name = rawstr(ntrash, raw - nlen, nlen);
 			}
@@ -648,12 +658,12 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 				vlen = huff_dec(raw - vlen, vlen, vtrash, sizeof(vtrash));
 				if (vlen == (uint32_t)-1)
 					fprintf(stderr, "9: can't decode huffman.\n");
-				value = vtrash;
+				value = mkstr(vtrash, vlen);
 			} else {
 				value = rawstr(vtrash, raw - vlen, vlen);
 			}
 
-			printf("%02x: p18: literal never indexed\n  %s: %s\n", c, name, value); 
+			printf("%02x: p18: literal never indexed\n  %s: %s\n", c, name.ptr, value.ptr);
 		}
 		else if (*raw >= 0x20 && *raw <= 0x3f) {
 			/* max dyn table size change */

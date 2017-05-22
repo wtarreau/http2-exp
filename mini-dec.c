@@ -120,6 +120,16 @@ static inline const char *str(char *buf, const struct str *str)
 	return buf;
 }
 
+/* copies <len> bytes from string <raw> to buffer <buf> and adds a trailing
+ * zero. The caller must ensure <buf> is large enough.
+ */
+static inline const char *rawstr(char *buf, const uint8_t *raw, size_t len)
+{
+	memcpy(buf, raw, len);
+	buf[len] = 0;
+	return buf;
+}
+
 /* returns < 0 if error */
 //int init_dyn(int size)
 //{
@@ -420,16 +430,17 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 				return -4;
 			if (len < vlen) // truncated
 				return -5;
-			value = (char *)raw;
+
 			raw += vlen;
 			len -= vlen;
 
 			if (huff) {
-				vlen = huff_dec((uint8_t *)value, vlen, vtrash, sizeof(vtrash));
+				vlen = huff_dec(raw - vlen, vlen, vtrash, sizeof(vtrash));
 				if (vlen == (uint32_t)-1)
-					fprintf(stderr, "can't decode huffman.\n");
-				else
-					value = vtrash;
+					fprintf(stderr, "1: can't decode huffman.\n");
+				value = vtrash;
+			} else {
+				value = rawstr(vtrash, raw - vlen, vlen);
 			}
 			printf("%02x: p15: literal with indexing -- name\n  %s: %s\n", c, name, value);
 		}
@@ -446,16 +457,17 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 				return -7;
 			if (len < nlen) // truncated
 				return -8;
-			name = (char *)raw;
+
 			raw += nlen;
 			len -= nlen;
 
 			if (huff) {
-				nlen = huff_dec((uint8_t *)name, nlen, ntrash, sizeof(ntrash));
+				nlen = huff_dec(raw - nlen, nlen, ntrash, sizeof(ntrash));
 				if (nlen == (uint32_t)-1)
-					fprintf(stderr, "can't decode huffman.\n");
-				else
-					name = ntrash;
+					fprintf(stderr, "2: can't decode huffman.\n");
+				name = ntrash;
+			} else {
+				name = rawstr(ntrash, raw - nlen, nlen);
 			}
 
 			/* value */
@@ -469,16 +481,16 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 			if (len < vlen) // truncated
 				return -11;
 
-			value = (char *)raw;
 			raw += vlen;
 			len -= vlen;
 
 			if (huff) {
-				vlen = huff_dec((uint8_t *)value, vlen, vtrash, sizeof(vtrash));
+				vlen = huff_dec(raw - vlen, vlen, vtrash, sizeof(vtrash));
 				if (vlen == (uint32_t)-1)
-					fprintf(stderr, "can't decode huffman.\n");
-				else
-					value = vtrash;
+					fprintf(stderr, "3: can't decode huffman.\n");
+				value = vtrash;
+			} else {
+				value = rawstr(vtrash, raw - vlen, vlen);
 			}
 
 			printf("%02x: p16: literal with indexing\n  %s: %s\n", c, name, value); 
@@ -498,16 +510,17 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 				return -14;
 			if (len < vlen) // truncated
 				return -15;
-			value = (char *)raw;
+
 			raw += vlen;
 			len -= vlen;
 
 			if (huff) {
-				vlen = huff_dec((uint8_t *)value, vlen, vtrash, sizeof(vtrash));
+				vlen = huff_dec(raw - vlen, vlen, vtrash, sizeof(vtrash));
 				if (vlen == (uint32_t)-1)
-					fprintf(stderr, "can't decode huffman.\n");
-				else
-					value = vtrash;
+					fprintf(stderr, "4: can't decode huffman.\n");
+				value = vtrash;
+			} else {
+				value = rawstr(vtrash, raw - vlen, vlen);
 			}
 
 			printf("%02x: p16: literal without indexing -- name\n  %s: %s\n", c, name, value);
@@ -525,16 +538,17 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 				return -17;
 			if (len < nlen) // truncated
 				return -18;
-			name = (char *)raw;
+
 			raw += nlen;
 			len -= nlen;
 
 			if (huff) {
-				nlen = huff_dec((uint8_t *)name, nlen, ntrash, sizeof(ntrash));
+				nlen = huff_dec(raw - nlen, nlen, ntrash, sizeof(ntrash));
 				if (nlen == (uint32_t)-1)
-					fprintf(stderr, "can't decode huffman.\n");
-				else
-					name = ntrash;
+					fprintf(stderr, "5: can't decode huffman.\n");
+				name = ntrash;
+			} else {
+				name = rawstr(ntrash, raw - nlen, nlen);
 			}
 
 			/* value */
@@ -546,16 +560,17 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 				return -20;
 			if (len < vlen) // truncated
 				return -21;
-			value = (char *)raw;
+
 			raw += vlen;
 			len -= vlen;
 
 			if (huff) {
-				vlen = huff_dec((uint8_t *)value, vlen, vtrash, sizeof(vtrash));
+				vlen = huff_dec(raw - vlen, vlen, vtrash, sizeof(vtrash));
 				if (vlen == (uint32_t)-1)
-					fprintf(stderr, "can't decode huffman.\n");
-				else
-					value = vtrash;
+					fprintf(stderr, "6: can't decode huffman.\n");
+				value = vtrash;
+			} else {
+				value = rawstr(vtrash, raw - vlen, vlen);
 			}
 
 			printf("%02x: p17: literal without indexing\n  %s: %s\n", c, name, value);
@@ -575,9 +590,19 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 				return -24;
 			if (len < vlen) // truncated
 				return -25;
-			value = (char *)raw;
+
 			raw += vlen;
 			len -= vlen;
+
+			if (huff) {
+				vlen = huff_dec(raw - vlen, vlen, vtrash, sizeof(vtrash));
+				if (vlen == (uint32_t)-1)
+					fprintf(stderr, "7: can't decode huffman.\n");
+				value = vtrash;
+			} else {
+				value = rawstr(vtrash, raw - vlen, vlen);
+			}
+
 			printf("%02x: p17: literal never indexed -- name\n  %s: %s\n", c, name, value);
 		}
 		else if (*raw == 0x10) {
@@ -594,16 +619,16 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 			if (len < nlen) // truncated
 				return -28;
 
-			name = (char *)raw;
 			raw += nlen;
 			len -= nlen;
 
 			if (huff) {
-				nlen = huff_dec((uint8_t *)name, nlen, ntrash, sizeof(ntrash));
+				nlen = huff_dec(raw - nlen, nlen, ntrash, sizeof(ntrash));
 				if (nlen == (uint32_t)-1)
-					fprintf(stderr, "can't decode huffman.\n");
-				else
-					name = ntrash;
+					fprintf(stderr, "8: can't decode huffman.\n");
+				name = ntrash;
+			} else {
+				name = rawstr(ntrash, raw - nlen, nlen);
 			}
 
 			/* value */
@@ -615,16 +640,17 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 				return -30;
 			if (len < vlen) // truncated
 				return -31;
-			value = (char *)raw;
+
 			raw += vlen;
 			len -= vlen;
 
 			if (huff) {
-				vlen = huff_dec((uint8_t *)value, vlen, vtrash, sizeof(vtrash));
+				vlen = huff_dec(raw - vlen, vlen, vtrash, sizeof(vtrash));
 				if (vlen == (uint32_t)-1)
-					fprintf(stderr, "can't decode huffman.\n");
-				else
-					value = vtrash;
+					fprintf(stderr, "9: can't decode huffman.\n");
+				value = vtrash;
+			} else {
+				value = rawstr(vtrash, raw - vlen, vlen);
 			}
 
 			printf("%02x: p18: literal never indexed\n  %s: %s\n", c, name, value); 

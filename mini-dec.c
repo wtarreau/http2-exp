@@ -111,18 +111,31 @@ struct dyn {
  * \0 after both the name and the value in each cell. This would provide a 22
  * bytes saving per header, or about 36% of the area on average.
  */
+
+
+/* One dynamic table entry descriptor */
 struct dte {
-	uint16_t prev;  /* index of previous adjacent block */
-	uint16_t next;  /* index of next adjacent block */
-	uint16_t plen;  /* preamble length :  empty space before the data */
+	uint32_t addr;  /* storage address, relative to the dte address */
 	uint16_t nlen;  /* header name length */
 	uint16_t vlen;  /* header value length */
-	uint16_t tlen;  /* trailer length : empty space after the data */
-	uint32_t addr;  /* storage address, relative to the dte address */
+};
+
+/* Note: the table's head plus a struct dte must be smaller than 32 bytes so
+ * that a single large header can fit. Here that's 20 bytes for the header.
+ */
+struct dht {
+	uint32_t size;  /* allocated table size in bytes */
+	uint32_t total; /* sum of nlen + vlen in bytes */
+	uint32_t stop;  /* temporary limit to the growth of idx table */
+	uint16_t wrap;  /* number of allocated slots, wraps here */
+	uint16_t head;  /* next slot number */
+	uint16_t used;  /* number of slots in use */
+	uint16_t pad;   /* unused, keeps dte 32-bit aligned */
+	struct dte dte[0]; /* dynamic table entries */
 };
 
 /* dynamic header table. Size is sum of n+v+32 for each entry. */
-static void *dht;
+static struct dht *dht;
 
 /* static header table. [0] unused. */
 static const struct hdr sh[62] = {
@@ -229,6 +242,98 @@ static inline struct str rawstr(char *buf, const uint8_t *raw, size_t len)
 	buf[len] = 0;
 	return ret;
 }
+
+/* purges table dht until nlen+vlen fit according to the protocol. Returns
+ * non-zero on success, zero on failure (ie: table flushed but still not
+ * sufficient).
+ */
+static inline int dht_purge(struct dht *dht, uint32_t nlen, uint32_t vlen)
+{
+	uint32_t needed = nlen + vlen + 32;
+	uint32_t size = dht->size;
+	uint32_t used = dht->used;
+	uint32_t total = dht->total;
+	uint32_t head = dht->head;
+	uint32_t tail;
+
+	if (used * 32 + total + needed <= size)
+		return 1;
+
+	while (used) {
+		tail = ((head < used) ? wrap : 0) + head - used;
+		total -= dht->dte[tail].nlen + dht->dte[tail].vlen;
+		used--;
+		if (used * 32 + total + needed <= size)
+			break;
+	}
+	dht->used = used;
+	dht->total = total;
+
+	/* realign if empty */
+	if (!used)
+		dht->head = 0;
+
+	/* pack the table if it doesn't wrap anymore */
+	if (dht->head >= used)
+		dht->wrap = dht->head;
+
+	/* no need to check for 'used' here as if it doesn't fit, used==0 */
+	return needed <= size;
+}
+
+/* tries to insert a new header <name>:<value> in front of the current head */
+static void dht_insert(struct dht *dht, struct str name, struct str value)
+{
+	if (!dht_purge(dht, name.len, value.len))
+		return;
+
+	/* now there is enough room in the table, but not necessarily where we
+	 * need it.
+	 */
+
+	/* check if a slot can be added:
+	 *  if (head > used)      : there is a hole either after head or before
+	 *                          head-used so that's OK
+	 *  if (head == wrap &&   : there's some room after the head
+	 *      wrap < limit)
+	 *  if (head <= used &&   : there will be room after the table is
+	 *      head < wrap)        realigned
+	 *  Otherwise the table is full and needs to be rebuilt.
+	 */
+	if (dht->head <= dht->used && (head < wrap || wrap >= limit)) {
+		/* TODO: rebuild a new table */
+		abort();
+	}
+
+
+	/* try to insert the data block before the current latest entry.
+	 * If it doesn't fit, check if it can be done at the end of the
+	 * table.
+	 *
+	 * The free space before the head depends if the head directly faces
+	 * the index table or if it is located after the tail :
+	 *
+	 *    if !used
+	 *         room = table.size - &dht.dte + 1 * sizeof(dte)
+	 *    else if used > 1 && tail.addr < head.addr
+	 *         room = head.addr - (tail.addr+tail.nlen+tail.vlen) - 1
+	 *    else
+	 *         room = head.addr - (&dht.dte + dht.wrap * sizeof(dte))
+	 *
+	 * Note above, used and wrap have to be updated before finding the
+	 * right place so as not to cause a collision when updating dht.wrap.
+	 * The -1 is to ensure head.addr and tail.addr never collide in the
+	 * event where tail.nlen=tail.vlen=0. If room < nlen+vlen, there may
+	 * be some room left between the tail and the end of the table :
+	 *
+	 *    room = table.size - (&dht.dte + used * sizeof(dte)) -
+	 *       (dht.dte[tail].addr + dht.dte[tail].nlen + dht.dte[tail].vlen)
+	 *
+	 * If room < nlen+vlen the table now needs to be defragmented.
+	 */
+
+}
+
 
 /* returns the number of allocated entries, including the root */
 static inline uint16_t get_dt_alloc(const struct dte *dte)

@@ -120,17 +120,18 @@ struct dte {
 	uint16_t vlen;  /* header value length */
 };
 
-/* Note: the table's head plus a struct dte must be smaller than 32 bytes so
- * that a single large header can fit. Here that's 20 bytes for the header.
+/* Note: the table's head plus a struct dte must be smaller than or equal to 32
+ * bytes so that a single large header can always fit. Here that's 16 bytes for
+ * the header, plus 8 bytes per slot.
+ * Note that when <used> == 0, front, head, and wrap are undefined.
  */
 struct dht {
 	uint32_t size;  /* allocated table size in bytes */
 	uint32_t total; /* sum of nlen + vlen in bytes */
-	uint32_t stop;  /* temporary limit to the growth of idx table */
+	uint16_t front; /* slot number of the first node after the idx table */
 	uint16_t wrap;  /* number of allocated slots, wraps here */
-	uint16_t head;  /* next slot number */
+	uint16_t head;  /* last inserted slot number */
 	uint16_t used;  /* number of slots in use */
-	uint16_t pad;   /* unused, keeps dte 32-bit aligned */
 	struct dte dte[0]; /* dynamic table entries */
 };
 
@@ -247,14 +248,16 @@ static inline struct str rawstr(char *buf, const uint8_t *raw, size_t len)
  * non-zero on success, zero on failure (ie: table flushed but still not
  * sufficient).
  */
-static inline int dht_purge(struct dht *dht, uint32_t nlen, uint32_t vlen)
+static/* inline*/ int dht_purge(struct dht *dht, uint32_t nlen, uint32_t vlen)
 {
 	uint32_t needed = nlen + vlen + 32;
 	uint32_t size = dht->size;
 	uint32_t used = dht->used;
 	uint32_t total = dht->total;
 	uint32_t head = dht->head;
+	uint32_t wrap = dht->wrap;
 	uint32_t tail;
+	uint16_t front = dht->front;
 
 	if (used * 32 + total + needed <= size)
 		return 1;
@@ -262,16 +265,19 @@ static inline int dht_purge(struct dht *dht, uint32_t nlen, uint32_t vlen)
 	while (used) {
 		tail = ((head < used) ? wrap : 0) + head - used;
 		total -= dht->dte[tail].nlen + dht->dte[tail].vlen;
+		if (tail == front)
+			front = head;
 		used--;
 		if (used * 32 + total + needed <= size)
 			break;
 	}
 	dht->used = used;
 	dht->total = total;
+	dht->front = front;
 
 	/* realign if empty */
 	if (!used)
-		dht->head = 0;
+		dht->front = dht->head = 0;
 
 	/* pack the table if it doesn't wrap anymore */
 	if (dht->head >= used)
@@ -284,27 +290,112 @@ static inline int dht_purge(struct dht *dht, uint32_t nlen, uint32_t vlen)
 /* tries to insert a new header <name>:<value> in front of the current head */
 static void dht_insert(struct dht *dht, struct str name, struct str value)
 {
+	uint32_t used = dht->used;
+	uint32_t head = dht->head;
+	uint32_t prev = head;
+	uint32_t wrap = dht->wrap;
+	uint32_t tail = ((head < used) ? wrap : 0) + head - used;
+	uint32_t front = dht->front;
+	uint32_t headroom, tailroom;
+
 	if (!dht_purge(dht, name.len, value.len))
 		return;
 
-	/* now there is enough room in the table, but not necessarily where we
-	 * need it.
+	/* Now there is enough room in the table, that's guaranteed by the
+	 * protocol, but not necessarily where we need it.
 	 */
 
-	/* check if a slot can be added:
-	 *  if (head > used)      : there is a hole either after head or before
-	 *                          head-used so that's OK
-	 *  if (head == wrap &&   : there's some room after the head
-	 *      wrap < limit)
-	 *  if (head <= used &&   : there will be room after the table is
-	 *      head < wrap)        realigned
-	 *  Otherwise the table is full and needs to be rebuilt.
-	 */
-	if (dht->head <= dht->used && (head < wrap || wrap >= limit)) {
-		/* TODO: rebuild a new table */
+	if (!used) {
+		/* easy, the table was empty */
+		dht->front = dht->head = 0;
+		dht->wrap  = dht->used = 1;
+		dht->total = 0;
+		dht->dte[head].addr = dht->size - (name.len + value.len);
+		head = 0;
+		goto copy;
+	}
+
+	/* compute the new head, used and wrap position */
+	used++;
+	head++;
+
+	if (head >= wrap) {
+		/* head is leading the entries, we either need to push the
+		 * table further or to loop back to released entries. FIXME,
+		 * we can add some heuristics here to decide when to loop
+		 * back, such as if (wrap >= 2*used && wrap - used >= 10).
+		 */
+		if ((sizeof(*dht) + (wrap + 1) * sizeof(dht->dte[0]) <= dht->dte[dht->front].addr)
+		    /*&& (used == wrap || wrap < 2*used || wrap < used + 10)*/)
+			wrap++;
+		else if (head >= used) /* there's a hole at the beginning */
+			head = 0;
+		else {
+			/* no more room, head hits tail and the index cannot be
+			 * extended, we have to realign the whole table.
+			 */
+			/* FIXME: slow reorganization of the table */
+			fprintf(stderr, "aborting: need to reorganize index and table\n");
+			abort();
+		}
+	}
+	else if (used >= wrap) {
+		/* we've hit the tail, we need to reorganize the index so that
+		 * the head is at the end (but not necessarily move the data).
+		 */
+		/* FIXME: slow reorganization of the table */
+		fprintf(stderr, "aborting: need to reorganize index only\n");
 		abort();
 	}
 
+	/* Now we have updated head, used and wrap, we know that there is some
+	 * available room at least from the protocol's perspective. This space
+	 * is split in two areas :
+	 *
+	 *   1: if the previous head was the front cell, the space between the
+	 *      end of the index table and the front cell's address.
+	 *   2: if the previous head was the front cell, the space between the
+	 *      end of the tail and the end of the table ; or if the previous
+	 *      head was not the front cell, the space between the end of the
+	 *      tail and the head's address.
+	 */
+	if (prev == front) {
+		/* the area was contiguous */
+		headroom = dht->dte[front].addr - (sizeof(*dht) + wrap * sizeof(dht->dte[0]));
+		tailroom = dht->size - dht->dte[tail].addr - dht->dte[tail].nlen - dht->dte[tail].vlen;
+	}
+	else {
+		/* it's already wrapped so we can't store anything in the headroom */
+		headroom = 0;
+		tailroom = dht->dte[prev].addr - dht->dte[tail].addr - dht->dte[tail].nlen - dht->dte[tail].vlen;
+	}
+
+	if (headroom >= name.len + value.len) {
+		/* install upfront */
+		dht->dte[head].addr = dht->dte[front].addr - (name.len + value.len);
+		front = head;
+	}
+	else if (tailroom >= name.len + value.len) {
+		dht->dte[head].addr = dht->dte[tail].addr + tailroom - (name.len + value.len);
+	}
+	else {
+		/* FIXME: need to defragment the table */
+		fprintf(stderr, "aborting: need to defragment the table\n");
+		abort();
+	}
+
+	dht->front = front;
+	dht->wrap  = wrap;
+	dht->head  = head;
+	dht->used  = used;
+
+ copy:
+	dht->total         += name.len + value.len;
+	dht->dte[head].nlen = name.len;
+	dht->dte[head].vlen = value.len;
+
+	memcpy((void *)dht + dht->dte[head].addr, name.ptr, name.len);
+	memcpy((void *)dht + dht->dte[head].addr + name.len, value.ptr, value.len);
 
 	/* try to insert the data block before the current latest entry.
 	 * If it doesn't fit, check if it can be done at the end of the
@@ -331,181 +422,66 @@ static void dht_insert(struct dht *dht, struct str name, struct str value)
 	 *
 	 * If room < nlen+vlen the table now needs to be defragmented.
 	 */
-
 }
 
-
-/* returns the number of allocated entries, including the root */
-static inline uint16_t get_dt_alloc(const struct dte *dte)
+/* allocate a dynamic headers table of <size> bytes and return it initialized */
+static inline void init_dht(struct dht *dht, uint32_t size)
 {
-	return dte->addr / sizeof(*dte);
+	dht->size = size;
+	dht->total = 0;
+	dht->used = 0;
 }
 
-/* returns the number of entries used, not counting the root */
-static inline uint16_t get_dt_used(const struct dte *dte)
+/* allocate a dynamic headers table of <size> bytes and return it initialized */
+static inline void *alloc_dht(uint32_t size)
 {
-	return dte->nlen;
-}
+	struct dht *dht;
 
-static inline uint16_t get_dt_insert(const struct dte *dte)
-{
-	return dte->vlen;
-}
+	dht = calloc(1, size);
+	if (!dht)
+		return dht;
 
-/* allocate a dynamic table of <size> bytes and return it initialized */
-static inline void init_dt(struct dte *root, uint32_t size)
-{
-	root->addr = sizeof(*root);
-	root->tlen = size - root->addr;
-	root->vlen = 1; /* insertion point */
-	root->plen = root->nlen = 0;
-	root->prev = root->next = 0;
-}
-
-/* allocate a dynamic table of <size> bytes and return it initialized */
-static inline void *alloc_dt(uint32_t size)
-{
-	struct dte *root;
-
-	root = calloc(1, size);
-	if (!root)
-		return root;
-
-	init_dt(root, size);
-	return root;
+	init_dht(dht, size);
+	return dht;
 }
 
 /* return a pointer to the entry designated by index <idx> (starting at 1) or
  * NULL if this index is not there.
  */
-static inline struct dte *hpack_get_dte(struct dte *area, uint16_t idx)
+static inline struct dte *hpack_get_dte(struct dht *dht, uint16_t idx)
 {
-	if (idx > get_dt_used(area))
+	idx--;
+
+	if (idx >= dht->used)
 		return NULL;
 
-	if (idx < get_dt_insert(area))
-		idx = get_dt_insert(area) - idx;
+	if (idx <= dht->head)
+		idx = dht->head - idx;
 	else
-		idx = get_dt_insert(area) - idx + get_dt_alloc(area) - 1;
+		idx = dht->head - idx + dht->wrap;
 
-	return area + idx;
+	return &dht->dte[idx];
 }
 
 /* return a pointer to the header name for entry <dte>. */
-static inline struct str hpack_get_name(const struct dte *dte)
+static inline struct str hpack_get_name(const struct dht *dht, const struct dte *dte)
 {
 	struct str ret = {
-		.ptr = (void *)dte + dte->addr + dte->plen,
+		.ptr = (void *)dht + dte->addr,
 		.len = dte->nlen,
 	};
 	return ret;
 }
 
 /* return a pointer to the header value for entry <dte>. */
-static inline struct str hpack_get_value(const struct dte *dte)
+static inline struct str hpack_get_value(const struct dht *dht, const struct dte *dte)
 {
 	struct str ret = {
-		.ptr = (void *)dte + dte->addr + dte->plen + dte->nlen,
+		.ptr = (void *)dht + dte->addr + dte->nlen,
 		.len = dte->vlen,
 	};
 	return ret;
 }
-
-/* insert entry at slot <new> after <old> for <nlen> and <vlen> bytes.
- * The caller is supposed to have verified that the slot entry is available and
- * that there's enough room in <old>'s tlen. The updated dte is returned for
- * the caller to complete the operation.
- */
-static inline struct dte *hpack_insert_after(struct dte *area, uint16_t old,
-				      uint16_t new, uint16_t nlen, uint16_t vlen)
-{
-	area[old].tlen -= nlen + vlen;
-	if (old)
-		area[new].addr = (void *)&area[old] - (void *)&area[new] + area[old].addr + area[old].plen + area[old].nlen + area[old].vlen + area[old].tlen;
-	else
-		area[new].addr = (void *)&area[old] - (void *)&area[new] + area[old].addr + area[old].tlen;
-
-	//printf("insert %d before %d (n=%d,v=%d) @%d(abs=%d), old.a=%d(abs=%d) old.t=%d\n",
-	//       new, old, nlen, vlen,
-	//       area[new].addr, (int)((void *)&area[new] - (void *)area + area[new].addr),
-	//       area[old].addr, (int)((void *)&area[old] - (void *)area + area[old].addr),
-	//       area[old].tlen);
-	area[new].plen = 0;
-	area[new].nlen = nlen;
-	area[new].vlen = vlen;
-	area[new].tlen = 0;
-	area[new].prev = old;
-	area[new].next = area[old].next;
-	area[area[old].next].prev = new;
-	area[old].next = new;
-	area[0].plen += nlen + vlen;
-	area[0].nlen++; // increment root's #elements, which is also the insertion point
-	if (area[0].nlen >= get_dt_alloc(area)) {
-		area[0].addr += sizeof(*area);
-		/* FIXME: tlen might already be too short after the insertion,
-		 * a control has to be made earlier.
-		 */
-		area[0].tlen -= sizeof(*area);
-	}
-
-	area[0].vlen++; // increment root's insertion point
-	return area + new;
-}
-
-/* insert entry at slot <new> after the root for <nlen> and <vlen> bytes.
- * The caller is supposed to have verified that the slot entry is available
- * and that there's enough room in root's tlen.
- */
-static inline struct dte *hpack_insert_after_root(struct dte *area,
-                                                  uint16_t new, uint16_t nlen, uint16_t vlen)
-{
-	return hpack_insert_after(area, 0, new, nlen, vlen);
-}
-
-/* insert entry at slot <new> before first entry for <nlen> and <vlen> bytes.
- * The caller is supposed to have verified that the slot entry is available and
- * that there's enough room in the previous node's tlen.
- */
-static inline struct dte *hpack_insert_before_first(struct dte *area,
-                                                    uint16_t new, uint16_t nlen, uint16_t vlen)
-{
-	uint16_t first = get_dt_insert(area) - 1;
-
-	return hpack_insert_after(area, area[first].prev, new, nlen, vlen);
-}
-
-
-static inline void hpack_store(struct dte *dte, struct str name, struct str value)
-{
-	memcpy((void *)dte + dte->addr + dte->plen, name.ptr, name.len);
-	memcpy((void *)dte + dte->addr + dte->plen + dte->nlen, value.ptr, value.len);
-}
-
-/* returns < 0 if error */
-//int init_dyn(int size)
-//{
-//	int entries = size / 32;
-//
-//	dh = calloc(1, sizeof(*dh) + entries * sizeof(dh->h[0]));
-//	if (!dh)
-//		return -1;
-//
-//	dh->size = size;
-//	dh->entries = entries;
-//	debug_printf(2, "allocated %d entries for %d bytes\n", entries, size);
-//	return 0;
-//}
-
-//static inline int pos_to_idx(const struct dyn *dh, int pos)
-//{
-//	return (dh->head + dh->entries - pos) % dh->entries + 1;
-//}
-
-/* takes an idx, returns current table's position, it's the reverse of pos_to_idx */
-//static inline int idx_to_pos(const struct dyn *dh, int idx)
-//{
-//	//return (dh->head + dh->entries - idx + 1) % dh->entries;
-//}
 
 /* takes an idx, returns the associated name */
 static inline struct str idx_to_name(int idx)
@@ -520,7 +496,7 @@ static inline struct str idx_to_name(int idx)
 	if (!dte)
 		return mkstr("### ERR ###", 11); // error
 
-	dyn = hpack_get_name(hpack_get_dte(dht, idx - STATIC_SIZE));
+	dyn = hpack_get_name(dht, dte);
 	return dyn;
 }
 
@@ -537,37 +513,9 @@ static inline struct str idx_to_value(int idx)
 	if (!dte)
 		return mkstr("### ERR ###", 11); // error
 
-	dyn = hpack_get_value(hpack_get_dte(dht, idx - STATIC_SIZE));
+	dyn = hpack_get_value(dht, dte);
 	return dyn;
 }
-
-/* returns 0 */
-//int add_to_dyn(const char *n, const char *v)
-//{
-//	int ln = strlen(n);
-//	int lv = strlen(v);
-//	struct hdr *h;
-//
-//	while (ln + lv + 32 + dh->len > dh->size) {
-//		h = &dh->h[dh->tail];
-//		dh->len -= strlen(h->n) + strlen(h->v) + 32;
-//		debug_printf(2, "====== purging %d : <%s>,<%s> ======\n", pos_to_idx(dh, dh->tail), h->n, h->v);
-//		free(h->n);
-//		free(h->v);
-//		h->v = h->n = NULL;
-//		dh->tail++;
-//		if (dh->tail >= dh->entries)
-//			dh->tail = 0;
-//	}
-//	dh->len += ln + lv + 32;
-//
-//	h = &dh->h[dh->head];
-//	h->n = strdup(n);
-//	h->v = strdup(v);
-//	dh->head++;
-//	if (dh->head >= dh->entries)
-//		dh->head = 0;
-//}
 
 /* returns 0 to 15 for 0..[fF], or < 0 if not hex */
 static inline char hextoi(char c)
@@ -583,34 +531,6 @@ static inline char hextoi(char c)
 		return c + 10;
 	return -1;
 }
-
-/* reads one line into <in_hex> and convert it to {in,in_len}. Returns the
- * number of bytes read. Trims the first LF found. Uses <orig> instead of
- * stdin if not NULL. Very limited bounds checking, don't use as-is.
- */
-//int read_input_line(char *orig)
-//{
-//	char *i, *o;
-//	char v1, v2;
-//
-//	if (orig)
-//		strncpy(in_hex, orig, sizeof(in_hex));
-//	else if (!fgets(in_hex, sizeof(in_hex), stdin))
-//			return -1;
-//
-//	i = in_hex; o = in;
-//	in_len = 0;
-//	while (in_len < sizeof(in) &&
-//	       (v1 = hextoi(i[0])) >= 0 && (v2 = hextoi(i[1])) >= 0) {
-//		i += 2;
-//		o[in_len++] = (v1 << 4) + v2;
-//	}
-//	if (*i == '\n')
-//		*i = 0;
-//	else if (*i && i[1] == '\n')
-//		i[1] = 0;
-//	return in_len;
-//}
 
 /* reads one line into <in_hex> */
 int read_input_line()
@@ -671,42 +591,6 @@ int lookup_sh(const char *n, const char *v, int *ni, int *vi)
 	*vi = 0;
 	return 1;
 }
-
-/* looks up <n:v> in the dynamic table. Returns an index in the
- * dynamic table in <ni> or 0 if none was found. Returns the same
- * index in <vi> if the value is the same, or 0 if the value
- * differs (and has to be sent as a literal). Returns non-zero
- * if an entry was found.
- */
-//int lookup_dh(const char *n, const char *v, int *ni, int *vi)
-//{
-//	int i;
-//	int b = 0;
-//
-//	i = dh->head;
-//	while (i != dh->tail) {
-//		i--;
-//		if (i < 0)
-//			i = dh->entries - 1;
-//
-//		if (strcasecmp(n, dh->h[i].n) == 0) {
-//			if (strcasecmp(v, dh->h[i].v) == 0) {
-//				i = pos_to_idx(dh, i);
-//				*ni = *vi = i;
-//				return 1;
-//			}
-//			if (!b)
-//				b = i;
-//		}
-//	}
-//	if (!b)
-//		return 0;
-//
-//	b = pos_to_idx(dh, b);
-//	*ni = b;
-//	*vi = 0;
-//	return 1;
-//}
 
 /* reads a varint from <raw>'s lowest <b> bits and <len> bytes max (raw included).
  * returns the 32-bit value on success after updating raw_in and len_in. Forces
@@ -804,8 +688,9 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 			} else {
 				value = rawstr(vtrash, raw - vlen, vlen);
 			}
-			hpack_store(hpack_insert_before_first(dht, get_dt_used(dht) + 1, name.len, value.len), name, value);
-			printf("%02x: p15: literal with indexing -- name\n  %s: %s [used=%d]\n", c, name.ptr, value.ptr, get_dt_used(dht));
+			//hpack_store(hpack_insert_before_first(dht, get_dt_used(dht) + 1, name.len, value.len), name, value);
+			dht_insert(dht, name, value);
+			printf("%02x: p15: literal with indexing -- name\n  %s: %s [used=%d]\n", c, name.ptr, value.ptr, dht->used);
 		}
 		else if (*raw == 0x40) {
 			/* literal header field with incremental indexing -- literal name */
@@ -856,8 +741,9 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 				value = rawstr(vtrash, raw - vlen, vlen);
 			}
 
-			hpack_store(hpack_insert_before_first(dht, get_dt_used(dht) + 1, name.len, value.len), name, value);
-			printf("%02x: p16: literal with indexing\n  %s: %s [used=%d]\n", c, name.ptr, value.ptr, get_dt_used(dht));
+			//hpack_store(hpack_insert_before_first(dht, get_dt_used(dht) + 1, name.len, value.len), name, value);
+			dht_insert(dht, name, value);
+			printf("%02x: p16: literal with indexing\n  %s: %s [used=%d]\n", c, name.ptr, value.ptr, dht->used);
 		}
 		else if (*raw >= 0x01 && *raw <= 0x0f) {
 			/* literal header field without indexing -- indexed name */
@@ -1048,7 +934,7 @@ int main(int argc, char **argv)
 		argc--;
 	}
 
-	dht = alloc_dt(DHSIZE);
+	dht = alloc_dht(DHSIZE);
 	if (!dht)
 		exit(1);
 

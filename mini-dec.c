@@ -289,6 +289,23 @@ static inline struct str idx_to_value(const struct dht *dht, int idx)
 	return dyn;
 }
 
+/* dump the whole dynamic header table */
+__attribute__((used)) static void dht_dump(const struct dht *dht)
+{
+	int i;
+	unsigned int slot;
+	char name[DHSIZE], value[DHSIZE];
+
+	for (i = STATIC_SIZE + 1; i <= STATIC_SIZE + dht->used; i++) {
+		slot = (hpack_get_dte(dht, i - STATIC_SIZE) - dht->dte);
+		fprintf(stderr, "idx=%d slot=%u name=<%s> value=<%s> addr=%u-%u\n",
+			i, slot,
+			padstr(name, idx_to_name(dht, i)).ptr,
+			padstr(value, idx_to_value(dht, i)).ptr,
+			dht->dte[slot].addr, dht->dte[slot].addr+dht->dte[slot].nlen+dht->dte[slot].vlen-1);
+	}
+}
+
 /* rebuild a new dynamic header table from <dht> with an unwrapped index and
  * contents at the end. The new table is returned, the caller must not use the
  * previous one anymore. NULL may be returned if no table could be allocated.

@@ -213,6 +213,8 @@ static unsigned in_len;
 /* debug mode : 0 = none, 1 = encoding, 2 = code */
 static int debug_mode;
 
+static void dht_dump(const struct dht *dht);
+
 /* makes an str struct from a string and a length */
 static inline struct str mkstr(const char *ptr, size_t len)
 {
@@ -575,6 +577,22 @@ static inline struct str idx_to_value(const struct dht *dht, int idx)
 
 	dyn = hpack_get_value(dht, dte);
 	return dyn;
+}
+
+static void dht_dump(const struct dht *dht)
+{
+	int i;
+	unsigned int slot;
+	char name[DHSIZE], value[DHSIZE];
+
+	for (i = STATIC_SIZE + 1; i <= STATIC_SIZE + dht->used; i++) {
+		slot = (hpack_get_dte(dht, i - STATIC_SIZE) - dht->dte);
+		fprintf(stderr, "idx=%d slot=%u name=<%s> value=<%s> addr=%u-%u\n",
+			i, slot,
+			padstr(name, idx_to_name(dht, i)).ptr,
+			padstr(value, idx_to_value(dht, i)).ptr,
+			dht->dte[slot].addr, dht->dte[slot].addr+dht->dte[slot].nlen+dht->dte[slot].vlen-1);
+	}
 }
 
 /* returns 0 to 15 for 0..[fF], or < 0 if not hex */

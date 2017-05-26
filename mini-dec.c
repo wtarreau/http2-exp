@@ -256,7 +256,7 @@ static inline struct str hpack_get_value(const struct dht *dht, const struct dte
 }
 
 /* takes an idx, returns the associated name */
-static inline struct str idx_to_name(int idx)
+static inline struct str idx_to_name(const struct dht *dht, int idx)
 {
 	struct str dyn = { .ptr = "[dynamic_name]", 14 };
 	const struct dte *dte;
@@ -273,7 +273,7 @@ static inline struct str idx_to_name(int idx)
 }
 
 /* takes an idx, returns the associated value */
-static inline struct str idx_to_value(int idx)
+static inline struct str idx_to_value(const struct dht *dht, int idx)
 {
 	struct str dyn = { .ptr = "[dynamic_value]", 15 };
 	const struct dte *dte;
@@ -615,8 +615,8 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 			if (len == (uint32_t)-1) // truncated
 				return -1;
 
-			name  = padstr(ntrash, idx_to_name(idx));
-			value = padstr(vtrash, idx_to_value(idx));
+			name  = padstr(ntrash, idx_to_name(dht, idx));
+			value = padstr(vtrash, idx_to_value(dht, idx));
 			printf("%02x: p14: indexed header field\n  %s: %s\n", c, name.ptr, value.ptr);
 		}
 		else if (*raw >= 0x41 && *raw <= 0x7f) {
@@ -627,7 +627,7 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 			if (!len) // truncated
 				return -3;
 
-			name = padstr(ntrash, idx_to_name(idx));
+			name = padstr(ntrash, idx_to_name(dht, idx));
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
 			if (len == (uint32_t)-1) // truncated
@@ -711,7 +711,7 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 			if (!len) // truncated
 				return -13;
 
-			name = padstr(ntrash, idx_to_name(idx));
+			name = padstr(ntrash, idx_to_name(dht, idx));
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
 			if (len == (uint32_t)-1) // truncated
@@ -791,7 +791,7 @@ int decode_frame(const uint8_t *raw, uint32_t len)
 			if (!len) // truncated
 				return -23;
 
-			name = padstr(ntrash, idx_to_name(idx));
+			name = padstr(ntrash, idx_to_name(dht, idx));
 			huff = *raw & 0x80;
 			vlen = get_var_int(&raw, &len, 7);
 			if (len == (uint32_t)-1) // truncated

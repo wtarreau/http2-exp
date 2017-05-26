@@ -252,6 +252,66 @@ static inline unsigned int dht_get_tail(const struct dht *dht)
 	return ((dht->head + 1U < dht->used) ? dht->wrap : 0) + dht->head + 1U - dht->used;
 }
 
+/* rebuild a new dynamic header table from <dht> with an unwrapped index and
+ * contents at the end. The new table is returned, the caller must not use the
+ * previous one anymore. NULL may be returned if no table could be allocated.
+ */
+static struct dht *dht_defrag(struct dht *dht)
+{
+	static struct dht *alt_dht;
+	uint16_t old, new;
+	uint32_t addr;
+
+	if (alt_dht && alt_dht->size != dht->size) {
+		free(alt_dht);
+		alt_dht = NULL;
+	}
+
+	if (!alt_dht) {
+		alt_dht = calloc(1, dht->size);
+		if (!alt_dht)
+			return NULL;
+	}
+	alt_dht->size = dht->size;
+	alt_dht->total = dht->total;
+	alt_dht->used = dht->used;
+	alt_dht->wrap = dht->used;
+
+	new = 0;
+	addr = alt_dht->size;
+
+	if (dht->used) {
+		/* start from the tail */
+		old = dht_get_tail(dht);
+		do {
+			alt_dht->dte[new].nlen = dht->dte[old].nlen;
+			alt_dht->dte[new].vlen = dht->dte[old].vlen;
+			addr -= dht->dte[old].nlen + dht->dte[old].vlen;
+			alt_dht->dte[new].addr = addr;
+
+			memcpy((void *)alt_dht + alt_dht->dte[new].addr,
+			       (void *)dht + dht->dte[old].addr,
+			       dht->dte[old].nlen + dht->dte[old].vlen);
+
+			old++;
+			if (old >= dht->wrap)
+				old = 0;
+			new++;
+		} while (new < dht->used);
+	}
+
+	alt_dht->front = alt_dht->head = new - 1;
+
+	/* FIXME: overwrite the original dht for now */
+	memcpy(dht, alt_dht, dht->size);
+
+	//tmp = alt_dht;
+	//alt_dht = dht;
+	//dht = tmp;
+
+	return dht;
+}
+
 /* Purges table dht until a header field of <needed> bytes fits according to
  * the protocol (adding 32 bytes overhead). Returns non-zero on success, zero
  * on failure (ie: table empty but still not sufficient). It must only be

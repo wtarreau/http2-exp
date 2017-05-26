@@ -254,6 +254,37 @@ static inline unsigned int dht_get_tail(const struct dht *dht)
 	return ((dht->head + 1U < dht->used) ? dht->wrap : 0) + dht->head + 1U - dht->used;
 }
 
+static void dht_check_consistency(const struct dht *dht)
+{
+	unsigned slot = dht_get_tail(dht);
+	unsigned used2 = dht->used;
+	unsigned total = 0;
+
+	if (!dht->used)
+		return;
+
+	if (dht->front >= dht->wrap)
+		abort();
+
+	if (dht->used > dht->wrap)
+		abort();
+
+	if (dht->head >= dht->wrap)
+		abort();
+
+	while (used2--) {
+		total += dht->dte[slot].nlen + dht->dte[slot].vlen;
+		slot++;
+		if (slot >= dht->wrap)
+			slot = 0;
+	}
+
+	if (total != dht->total) {
+		fprintf(stderr, "%d: total=%u dht=%u\n", __LINE__, total, dht->total);
+		abort();
+	}
+}
+
 /* rebuild a new dynamic header table from <dht> with an unwrapped index and
  * contents at the end. The new table is returned, the caller must not use the
  * previous one anymore. NULL may be returned if no table could be allocated.

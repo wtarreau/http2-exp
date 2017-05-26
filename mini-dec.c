@@ -289,6 +289,67 @@ static inline struct str idx_to_value(const struct dht *dht, int idx)
 	return dyn;
 }
 
+/* rebuild a new dynamic header table from <dht> with an unwrapped index and
+ * contents at the end. The new table is returned, the caller must not use the
+ * previous one anymore. NULL may be returned if no table could be allocated.
+ */
+static struct dht *dht_defrag(struct dht *dht)
+{
+	static struct dht *alt_dht;
+	uint16_t old, new;
+	uint32_t addr;
+
+	//fprintf(stderr, "defrag\n");
+	if (alt_dht && alt_dht->size != dht->size) {
+		free(alt_dht);
+		alt_dht = NULL;
+	}
+
+	if (!alt_dht) {
+		alt_dht = calloc(1, dht->size);
+		if (!alt_dht)
+			return NULL;
+	}
+	alt_dht->size = dht->size;
+	alt_dht->total = dht->total;
+	alt_dht->used = dht->used;
+	alt_dht->wrap = dht->used;
+
+	new = 0;
+	addr = alt_dht->size;
+
+	if (dht->used) {
+		/* start from the tail */
+		old = dht_get_tail(dht);
+		do {
+			alt_dht->dte[new].nlen = dht->dte[old].nlen;
+			alt_dht->dte[new].vlen = dht->dte[old].vlen;
+			addr -= dht->dte[old].nlen + dht->dte[old].vlen;
+			alt_dht->dte[new].addr = addr;
+
+			memcpy((void *)alt_dht + alt_dht->dte[new].addr,
+			       (void *)dht + dht->dte[old].addr,
+			       dht->dte[old].nlen + dht->dte[old].vlen);
+
+			old++;
+			if (old >= dht->wrap)
+				old = 0;
+			new++;
+		} while (new < dht->used);
+	}
+
+	alt_dht->front = alt_dht->head = new - 1;
+
+	/* FIXME: overwrite the original dht for now */
+	memcpy(dht, alt_dht, dht->size);
+
+	//tmp = alt_dht;
+	//alt_dht = dht;
+	//dht = tmp;
+
+	return dht;
+}
+
 /* Purges table dht until a header field of <needed> bytes fits according to
  * the protocol (adding 32 bytes overhead). Returns non-zero on success, zero
  * on failure (ie: table empty but still not sufficient). It must only be
@@ -385,18 +446,22 @@ static void dht_insert(struct dht *dht, struct str name, struct str value)
 			/* no more room, head hits tail and the index cannot be
 			 * extended, we have to realign the whole table.
 			 */
-			/* FIXME: slow reorganization of the table */
-			fprintf(stderr, "aborting: need to reorganize index and table\n");
-			abort();
+			dht = dht_defrag(dht);
+			wrap = dht->wrap + 1;
+			head = dht->head + 1;
+			prev = head - 1;
+			tail = 0;
 		}
 	}
 	else if (used >= wrap) {
 		/* we've hit the tail, we need to reorganize the index so that
 		 * the head is at the end (but not necessarily move the data).
 		 */
-		/* FIXME: slow reorganization of the table */
-		fprintf(stderr, "aborting: need to reorganize index only\n");
-		abort();
+		dht = dht_defrag(dht);
+		wrap = dht->wrap + 1;
+		head = dht->head + 1;
+		prev = head - 1;
+		tail = 0;
 	}
 
 	/* Now we have updated head, used and wrap, we know that there is some
@@ -436,9 +501,12 @@ static void dht_insert(struct dht *dht, struct str name, struct str value)
 		dht->dte[head].addr = dht->dte[tail].addr + dht->dte[tail].nlen + dht->dte[tail].vlen + tailroom - (name.len + value.len);
 	}
 	else {
-		/* FIXME: need to defragment the table */
-		fprintf(stderr, "aborting: need to defragment the table\n");
-		abort();
+		/* need to defragment the table before inserting upfront */
+		dht = dht_defrag(dht);
+		wrap = dht->wrap + 1;
+		head = dht->head + 1;
+		dht->dte[head].addr = dht->dte[dht->front].addr - (name.len + value.len);
+		dht->front = head;
 	}
 
 	dht->wrap = wrap;

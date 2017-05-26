@@ -408,18 +408,22 @@ static void dht_insert(struct dht *dht, struct str name, struct str value)
 			/* no more room, head hits tail and the index cannot be
 			 * extended, we have to realign the whole table.
 			 */
-			/* FIXME: slow reorganization of the table */
-			fprintf(stderr, "aborting: need to reorganize index and table\n");
-			abort();
+			dht = dht_defrag(dht);
+			wrap = dht->wrap + 1;
+			head = dht->head + 1;
+			prev = head - 1;
+			tail = 0;
 		}
 	}
 	else if (used >= wrap) {
 		/* we've hit the tail, we need to reorganize the index so that
 		 * the head is at the end (but not necessarily move the data).
 		 */
-		/* FIXME: slow reorganization of the table */
-		fprintf(stderr, "aborting: need to reorganize index only\n");
-		abort();
+		dht = dht_defrag(dht);
+		wrap = dht->wrap + 1;
+		head = dht->head + 1;
+		prev = head - 1;
+		tail = 0;
 	}
 
 	/* Now we have updated head, used and wrap, we know that there is some
@@ -451,22 +455,25 @@ static void dht_insert(struct dht *dht, struct str name, struct str value)
 	 * available.
 	 */
 	if (headroom >= name.len + value.len) {
-		/* install upfront */
+		/* install upfront and update ->front */
 		dht->dte[head].addr = dht->dte[dht->front].addr - (name.len + value.len);
 		dht->front = head;
 	}
 	else if (tailroom >= name.len + value.len) {
-		dht->dte[head].addr = dht->dte[tail].addr + tailroom - (name.len + value.len);
+		dht->dte[head].addr = dht->dte[tail].addr + dht->dte[tail].nlen + dht->dte[tail].vlen + tailroom - (name.len + value.len);
 	}
 	else {
-		/* FIXME: need to defragment the table */
-		fprintf(stderr, "aborting: need to defragment the table\n");
-		abort();
+		/* need to defragment the table before inserting upfront */
+		dht = dht_defrag(dht);
+		wrap = dht->wrap + 1;
+		head = dht->head + 1;
+		dht->dte[head].addr = dht->dte[dht->front].addr - (name.len + value.len);
+		dht->front = head;
 	}
 
-	dht->wrap  = wrap;
-	dht->head  = head;
-	dht->used  = used;
+	dht->wrap = wrap;
+	dht->head = head;
+	dht->used = used;
 
  copy:
 	dht->total         += name.len + value.len;
@@ -475,32 +482,6 @@ static void dht_insert(struct dht *dht, struct str name, struct str value)
 
 	memcpy((void *)dht + dht->dte[head].addr, name.ptr, name.len);
 	memcpy((void *)dht + dht->dte[head].addr + name.len, value.ptr, value.len);
-
-	/* try to insert the data block before the current latest entry.
-	 * If it doesn't fit, check if it can be done at the end of the
-	 * table.
-	 *
-	 * The free space before the head depends if the head directly faces
-	 * the index table or if it is located after the tail :
-	 *
-	 *    if !used
-	 *         room = table.size - &dht.dte + 1 * sizeof(dte)
-	 *    else if used > 1 && tail.addr < head.addr
-	 *         room = head.addr - (tail.addr+tail.nlen+tail.vlen) - 1
-	 *    else
-	 *         room = head.addr - (&dht.dte + dht.wrap * sizeof(dte))
-	 *
-	 * Note above, used and wrap have to be updated before finding the
-	 * right place so as not to cause a collision when updating dht.wrap.
-	 * The -1 is to ensure head.addr and tail.addr never collide in the
-	 * event where tail.nlen=tail.vlen=0. If room < nlen+vlen, there may
-	 * be some room left between the tail and the end of the table :
-	 *
-	 *    room = table.size - (&dht.dte + used * sizeof(dte)) -
-	 *       (dht.dte[tail].addr + dht.dte[tail].nlen + dht.dte[tail].vlen)
-	 *
-	 * If room < nlen+vlen the table now needs to be defragmented.
-	 */
 }
 
 /* allocate a dynamic headers table of <size> bytes and return it initialized */
